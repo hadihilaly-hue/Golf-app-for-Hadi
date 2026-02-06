@@ -2,16 +2,23 @@ const express = require('express');
 const path = require('path');
 const https = require('https');
 const fs = require('fs');
+const crypto = require('crypto');
 const { execSync } = require('child_process');
 const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
+const DATA_DIR = path.join(__dirname, 'data');
+const UPLOADS_DIR = path.join(__dirname, 'uploads');
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
 
 // File upload config
 const storage = multer.diskStorage({
-  destination: path.join(__dirname, 'uploads'),
+  destination: UPLOADS_DIR,
   filename: (req, file, cb) => {
     const uniqueName = `swing-${Date.now()}${path.extname(file.originalname)}`;
     cb(null, uniqueName);
@@ -32,9 +39,31 @@ const upload = multer({
 
 // Serve static files
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.json());
+app.use('/uploads', express.static(UPLOADS_DIR));
+app.use(express.json({ limit: '10mb' }));
 
-// Upload endpoint
+// ===== Swing Data Helpers =====
+function getSwingsFile() {
+  return path.join(DATA_DIR, 'swings.json');
+}
+
+function loadSwings() {
+  const file = getSwingsFile();
+  if (!fs.existsSync(file)) return [];
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function saveSwings(swings) {
+  fs.writeFileSync(getSwingsFile(), JSON.stringify(swings, null, 2));
+}
+
+// ===== API Routes =====
+
+// Upload video
 app.post('/api/upload', upload.single('video'), (req, res) => {
   if (!req.file) {
     return res.status(400).json({ error: 'No video file uploaded' });
@@ -44,6 +73,62 @@ app.post('/api/upload', upload.single('video'), (req, res) => {
     filename: req.file.filename,
     size: req.file.size,
   });
+});
+
+// Save a swing (video + analysis data)
+app.post('/api/swings', upload.single('video'), (req, res) => {
+  const id = crypto.randomBytes(6).toString('hex');
+  const analysis = req.body.analysis ? JSON.parse(req.body.analysis) : null;
+
+  const swing = {
+    id,
+    date: new Date().toISOString(),
+    videoFilename: req.file ? req.file.filename : null,
+    analysis,
+    notes: req.body.notes || '',
+  };
+
+  const swings = loadSwings();
+  swings.unshift(swing); // newest first
+  saveSwings(swings);
+
+  res.json({ success: true, swing });
+});
+
+// Get all saved swings
+app.get('/api/swings', (req, res) => {
+  const swings = loadSwings();
+  res.json({ swings });
+});
+
+// Get a single swing by ID
+app.get('/api/swings/:id', (req, res) => {
+  const swings = loadSwings();
+  const swing = swings.find((s) => s.id === req.params.id);
+  if (!swing) return res.status(404).json({ error: 'Swing not found' });
+  res.json({ swing });
+});
+
+// Delete a swing
+app.delete('/api/swings/:id', (req, res) => {
+  let swings = loadSwings();
+  const swing = swings.find((s) => s.id === req.params.id);
+  if (!swing) return res.status(404).json({ error: 'Swing not found' });
+
+  // Delete video file
+  if (swing.videoFilename) {
+    const videoPath = path.join(UPLOADS_DIR, swing.videoFilename);
+    if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+  }
+
+  swings = swings.filter((s) => s.id !== req.params.id);
+  saveSwings(swings);
+  res.json({ success: true });
+});
+
+// Share page - serves the main app which will load the shared swing
+app.get('/share/:id', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 // Health check

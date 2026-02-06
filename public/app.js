@@ -1,6 +1,6 @@
 /**
  * Golf Swing Analyzer - Main Application
- * Handles camera, recording, and UI interactions.
+ * Handles camera, recording, UI interactions, saving, sharing, and library.
  */
 
 (function () {
@@ -36,6 +36,48 @@
   let poseTrackingInterval = null;
   let cameraActive = false;
   let usingFrontCamera = true;
+  let lastAnalysisResults = null; // Store for saving
+  let currentPage = 'record';
+
+  // ===== Page Navigation =====
+  const recordPage = document.querySelector('main');
+  const libraryPage = document.getElementById('library-page');
+  const sharedView = document.getElementById('shared-view');
+
+  document.querySelectorAll('.nav-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const page = btn.dataset.page;
+      switchPage(page);
+    });
+  });
+
+  function switchPage(page) {
+    currentPage = page;
+    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
+    document.querySelector(`.nav-btn[data-page="${page}"]`).classList.add('active');
+
+    // Hide all page content
+    document.getElementById('video-container').classList.toggle('hidden', page !== 'record');
+    document.getElementById('controls').classList.toggle('hidden', page !== 'record');
+    document.getElementById('upload-section').classList.toggle('hidden', page !== 'record');
+    if (page !== 'record') analysisSection.classList.add('hidden');
+    libraryPage.classList.toggle('hidden', page !== 'library');
+    sharedView.classList.add('hidden');
+
+    if (page === 'library') {
+      loadLibrary();
+    }
+  }
+
+  // Check for shared swing URL
+  function checkSharedSwing() {
+    const match = window.location.pathname.match(/^\/share\/(\w+)$/);
+    if (match) {
+      loadSharedSwing(match[1]);
+      return true;
+    }
+    return false;
+  }
 
   // ===== Initialize Analyzer =====
   async function initAnalyzer() {
@@ -50,7 +92,6 @@
       console.log('Pose analyzer initialized');
     } catch (err) {
       console.warn('Pose detection could not initialize:', err.message);
-      // App still works without pose - just won't have skeleton overlay
     }
   }
 
@@ -69,7 +110,6 @@
           audio: false,
         });
       } catch (e) {
-        // Fallback: request any available camera
         mediaStream = await navigator.mediaDevices.getUserMedia({
           video: true,
           audio: false,
@@ -78,20 +118,17 @@
       cameraFeed.srcObject = mediaStream;
       cameraActive = true;
 
-      // Mirror front camera, don't mirror back camera
       updateCameraMirror();
 
       btnStartCamera.classList.add('hidden');
       btnRecord.classList.remove('hidden');
       document.getElementById('btn-flip-camera').classList.remove('hidden');
 
-      // Start pose tracking loop
       if (analyzer && analyzer.pose) {
         startPoseTracking();
       }
     } catch (err) {
       console.error('Camera error:', err);
-      // Reset the button so the user can try again
       btnStartCamera.innerHTML = '<span class="icon">📷</span> Start Camera';
       btnStartCamera.disabled = false;
 
@@ -124,7 +161,7 @@
           // Silently ignore frame send errors
         }
       }
-    }, 100); // ~10 fps for pose tracking
+    }, 100);
   }
 
   function stopPoseTracking() {
@@ -136,12 +173,10 @@
 
   // ===== Recording =====
   async function startRecording() {
-    // 3-2-1 countdown
     await showCountdown();
 
     recordedChunks = [];
 
-    // Pick a supported recording format (Safari uses mp4, Chrome uses webm)
     let mimeType = '';
     const types = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
     for (const type of types) {
@@ -158,18 +193,16 @@
     };
     mediaRecorder.onstop = onRecordingStopped;
 
-    mediaRecorder.start(100); // Collect data every 100ms
+    mediaRecorder.start(100);
     isRecording = true;
 
-    // Start tracking poses for analysis
     if (analyzer) analyzer.startTracking();
 
-    // Update UI
     recordingIndicator.classList.remove('hidden');
     btnRecord.classList.add('hidden');
     btnStop.classList.remove('hidden');
+    document.getElementById('btn-flip-camera').classList.add('hidden');
 
-    // Auto-stop after 15 seconds
     setTimeout(() => {
       if (isRecording) stopRecording();
     }, 15000);
@@ -185,7 +218,6 @@
         count--;
         if (count > 0) {
           countdown.textContent = count;
-          // Re-trigger animation
           countdown.style.animation = 'none';
           void countdown.offsetHeight;
           countdown.style.animation = 'countdown-pop 0.5s ease-out';
@@ -206,11 +238,11 @@
 
     if (analyzer) analyzer.stopTracking();
 
-    // Update UI
     recordingIndicator.classList.add('hidden');
     btnStop.classList.add('hidden');
     btnAnalyze.classList.remove('hidden');
     btnReset.classList.remove('hidden');
+    document.getElementById('btn-flip-camera').classList.remove('hidden');
   }
 
   function onRecordingStopped() {
@@ -225,22 +257,30 @@
     swingPhases.classList.add('hidden');
     critiqueSection.classList.add('hidden');
     tipsSection.classList.add('hidden');
+    document.getElementById('save-share-section').classList.add('hidden');
 
     btnAnalyze.classList.add('hidden');
 
-    // Small delay so user sees loading
     await new Promise((r) => setTimeout(r, 1500));
 
     let results;
     if (analyzer && analyzer.frames.length >= 10) {
       results = analyzer.analyzeSwing();
     } else {
-      // Fallback: provide general tips if pose detection didn't work
       results = generateFallbackAnalysis();
     }
 
+    lastAnalysisResults = results;
     loadingAnalysis.classList.add('hidden');
     displayResults(results);
+
+    // Show save & share buttons
+    if (!results.error) {
+      document.getElementById('save-share-section').classList.remove('hidden');
+      document.getElementById('save-status').classList.add('hidden');
+      document.getElementById('btn-save').disabled = false;
+      document.getElementById('btn-save').innerHTML = '<span class="icon">💾</span> Save Swing';
+    }
   }
 
   function generateFallbackAnalysis() {
@@ -308,29 +348,23 @@
       return;
     }
 
-    // Score
     if (results.score !== null) {
       const scoreHTML = `<div style="text-align:center"><span class="score-badge">Swing Score: ${results.score}/100</span></div>`;
       document.getElementById('critique-content').innerHTML = scoreHTML;
     }
 
-    // Metrics
     displayMetrics(results.metrics);
     poseMetrics.classList.remove('hidden');
 
-    // Phases
     displayPhases(results.phases);
     swingPhases.classList.remove('hidden');
 
-    // Critique
     displayCritique(results.critique, results.score);
     critiqueSection.classList.remove('hidden');
 
-    // Tips
     displayTips(results.tips);
     tipsSection.classList.remove('hidden');
 
-    // Scroll to results
     analysisSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
@@ -358,11 +392,8 @@
     Object.entries(phases).forEach(([phase, detected]) => {
       const el = document.querySelector(`.phase[data-phase="${phase}"]`);
       if (el) {
-        if (detected) {
-          el.classList.add('detected');
-        } else {
-          el.classList.remove('detected');
-        }
+        if (detected) el.classList.add('detected');
+        else el.classList.remove('detected');
       }
     });
   }
@@ -400,22 +431,337 @@
     container.innerHTML = html;
   }
 
+  // ===== Save Swing =====
+  async function saveSwing() {
+    const btnSave = document.getElementById('btn-save');
+    const saveStatus = document.getElementById('save-status');
+    btnSave.disabled = true;
+    btnSave.innerHTML = '<span class="icon">⏳</span> Saving...';
+
+    try {
+      const formData = new FormData();
+
+      // Attach recorded video if available
+      if (recordedChunks.length > 0) {
+        const mimeType = recordedChunks[0].type || 'video/webm';
+        const ext = mimeType.includes('mp4') ? '.mp4' : '.webm';
+        const blob = new Blob(recordedChunks, { type: mimeType });
+        formData.append('video', blob, `swing${ext}`);
+      }
+
+      // Attach analysis data
+      if (lastAnalysisResults) {
+        formData.append('analysis', JSON.stringify(lastAnalysisResults));
+      }
+
+      const response = await fetch('/api/swings', {
+        method: 'POST',
+        body: formData,
+      });
+
+      const data = await response.json();
+      if (data.success) {
+        btnSave.innerHTML = '<span class="icon">✅</span> Saved!';
+        saveStatus.textContent = 'Swing saved to your library!';
+        saveStatus.className = '';
+        saveStatus.classList.remove('hidden');
+      } else {
+        throw new Error(data.error || 'Save failed');
+      }
+    } catch (err) {
+      console.error('Save error:', err);
+      btnSave.innerHTML = '<span class="icon">💾</span> Save Swing';
+      btnSave.disabled = false;
+      saveStatus.textContent = 'Could not save. Please try again.';
+      saveStatus.className = 'error';
+      saveStatus.classList.remove('hidden');
+    }
+  }
+
+  // ===== Share Swing =====
+  async function shareSwing() {
+    // First save if not saved yet
+    const btnSave = document.getElementById('btn-save');
+    let swingId = null;
+
+    if (!btnSave.disabled || !btnSave.innerHTML.includes('Saved')) {
+      // Need to save first
+      try {
+        const formData = new FormData();
+        if (recordedChunks.length > 0) {
+          const mimeType = recordedChunks[0].type || 'video/webm';
+          const ext = mimeType.includes('mp4') ? '.mp4' : '.webm';
+          const blob = new Blob(recordedChunks, { type: mimeType });
+          formData.append('video', blob, `swing${ext}`);
+        }
+        if (lastAnalysisResults) {
+          formData.append('analysis', JSON.stringify(lastAnalysisResults));
+        }
+        const response = await fetch('/api/swings', { method: 'POST', body: formData });
+        const data = await response.json();
+        if (data.success) {
+          swingId = data.swing.id;
+          btnSave.innerHTML = '<span class="icon">✅</span> Saved!';
+          btnSave.disabled = true;
+        }
+      } catch (err) {
+        alert('Could not save swing for sharing. Please try again.');
+        return;
+      }
+    }
+
+    // Get the swing ID from the library if we didn't just save
+    if (!swingId) {
+      try {
+        const response = await fetch('/api/swings');
+        const data = await response.json();
+        if (data.swings.length > 0) {
+          swingId = data.swings[0].id;
+        }
+      } catch (err) {
+        // ignore
+      }
+    }
+
+    const shareUrl = `${window.location.origin}/share/${swingId}`;
+    const shareText = lastAnalysisResults && lastAnalysisResults.score
+      ? `Check out my golf swing! Score: ${lastAnalysisResults.score}/100`
+      : 'Check out my golf swing analysis!';
+
+    // Use native share if available (iOS Safari)
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: 'My Golf Swing',
+          text: shareText,
+          url: shareUrl,
+        });
+      } catch (err) {
+        if (err.name !== 'AbortError') {
+          copyToClipboard(shareUrl);
+        }
+      }
+    } else {
+      copyToClipboard(shareUrl);
+    }
+  }
+
+  function copyToClipboard(text) {
+    navigator.clipboard.writeText(text).then(() => {
+      const saveStatus = document.getElementById('save-status');
+      saveStatus.textContent = 'Share link copied to clipboard!';
+      saveStatus.className = '';
+      saveStatus.classList.remove('hidden');
+    }).catch(() => {
+      // Fallback for older browsers
+      prompt('Copy this link to share your swing:', text);
+    });
+  }
+
+  // ===== Library =====
+  async function loadLibrary() {
+    const listEl = document.getElementById('library-list');
+    const emptyEl = document.getElementById('library-empty');
+    listEl.innerHTML = '<div style="text-align:center;color:var(--green-pale);padding:20px;">Loading...</div>';
+    emptyEl.classList.add('hidden');
+
+    try {
+      const response = await fetch('/api/swings');
+      const data = await response.json();
+
+      if (data.swings.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.classList.remove('hidden');
+        return;
+      }
+
+      listEl.innerHTML = data.swings.map((swing) => {
+        const date = new Date(swing.date).toLocaleDateString('en-US', {
+          month: 'short', day: 'numeric', year: 'numeric',
+          hour: 'numeric', minute: '2-digit',
+        });
+        const score = swing.analysis && swing.analysis.score !== null
+          ? `Score: ${swing.analysis.score}/100`
+          : 'No score';
+        const videoThumb = swing.videoFilename
+          ? `<video src="/uploads/${swing.videoFilename}" muted preload="metadata"></video>`
+          : '<span class="no-video">🏌️</span>';
+
+        return `
+          <div class="swing-card" data-id="${swing.id}">
+            <div class="swing-card-thumb">${videoThumb}</div>
+            <div class="swing-card-info">
+              <div class="swing-card-date">${date}</div>
+              <div class="swing-card-score">${score}</div>
+            </div>
+            <div class="swing-card-actions">
+              <button onclick="window._viewSwing('${swing.id}')" title="View">👁️</button>
+              <button onclick="window._shareSwingById('${swing.id}')" title="Share">📤</button>
+              <button onclick="window._deleteSwing('${swing.id}')" title="Delete">🗑️</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (err) {
+      listEl.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px;">Could not load swings.</div>';
+    }
+  }
+
+  // View a saved swing
+  window._viewSwing = async function (id) {
+    try {
+      const response = await fetch(`/api/swings/${id}`);
+      const data = await response.json();
+      if (!data.swing) return;
+
+      const swing = data.swing;
+
+      // Hide library, show shared view
+      libraryPage.classList.add('hidden');
+      sharedView.classList.remove('hidden');
+
+      const video = document.getElementById('shared-video');
+      if (swing.videoFilename) {
+        video.src = `/uploads/${swing.videoFilename}`;
+        video.classList.remove('hidden');
+      } else {
+        video.classList.add('hidden');
+      }
+
+      const analysisEl = document.getElementById('shared-analysis');
+      if (swing.analysis) {
+        analysisEl.innerHTML = renderAnalysisHTML(swing.analysis);
+      } else {
+        analysisEl.innerHTML = '<p>No analysis data available.</p>';
+      }
+    } catch (err) {
+      alert('Could not load swing.');
+    }
+  };
+
+  // Share a saved swing by ID
+  window._shareSwingById = function (id) {
+    const shareUrl = `${window.location.origin}/share/${id}`;
+    if (navigator.share) {
+      navigator.share({ title: 'Golf Swing', text: 'Check out this golf swing!', url: shareUrl });
+    } else {
+      copyToClipboard(shareUrl);
+      alert('Share link copied to clipboard!');
+    }
+  };
+
+  // Delete a swing
+  window._deleteSwing = async function (id) {
+    if (!confirm('Delete this swing?')) return;
+    try {
+      await fetch(`/api/swings/${id}`, { method: 'DELETE' });
+      loadLibrary();
+    } catch (err) {
+      alert('Could not delete swing.');
+    }
+  };
+
+  // Load a shared swing from URL
+  async function loadSharedSwing(id) {
+    // Hide record page elements
+    document.getElementById('video-container').classList.add('hidden');
+    document.getElementById('controls').classList.add('hidden');
+    document.getElementById('upload-section').classList.add('hidden');
+    sharedView.classList.remove('hidden');
+
+    try {
+      const response = await fetch(`/api/swings/${id}`);
+      const data = await response.json();
+      if (!data.swing) {
+        document.getElementById('shared-analysis').innerHTML = '<p>Swing not found.</p>';
+        return;
+      }
+
+      const swing = data.swing;
+      const video = document.getElementById('shared-video');
+      if (swing.videoFilename) {
+        video.src = `/uploads/${swing.videoFilename}`;
+        video.classList.remove('hidden');
+      } else {
+        video.classList.add('hidden');
+      }
+
+      const analysisEl = document.getElementById('shared-analysis');
+      if (swing.analysis) {
+        analysisEl.innerHTML = renderAnalysisHTML(swing.analysis);
+      } else {
+        analysisEl.innerHTML = '<p>No analysis data available.</p>';
+      }
+    } catch (err) {
+      document.getElementById('shared-analysis').innerHTML = '<p>Could not load shared swing.</p>';
+    }
+  }
+
+  // Render analysis as HTML (reused for library view and share view)
+  function renderAnalysisHTML(analysis) {
+    let html = '';
+
+    if (analysis.score !== null) {
+      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${analysis.score}/100</span></div>`;
+    }
+
+    // Metrics
+    if (analysis.metrics) {
+      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">Pose Tracking Data</h3>';
+      html += '<div class="metrics-grid">';
+      const labels = {
+        shoulderRotation: 'Shoulder Rotation',
+        hipRotation: 'Hip Rotation',
+        spineAngle: 'Spine Angle',
+        kneeFlex: 'Knee Flex',
+        headMovement: 'Head Movement',
+        weightTransfer: 'Weight Transfer',
+      };
+      Object.entries(labels).forEach(([key, label]) => {
+        const m = analysis.metrics[key];
+        if (m) {
+          html += `<div class="metric-card"><span class="metric-label">${label}</span>`;
+          html += `<span class="metric-value ${m.rating}">${m.value}${m.unit}</span></div>`;
+        }
+      });
+      html += '</div>';
+    }
+
+    // Critique
+    if (analysis.critique) {
+      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">AI Coach Feedback</h3>';
+      analysis.critique.forEach((section) => {
+        html += `<div class="critique-category ${section.type}"><h4>${section.title}</h4><ul>`;
+        section.points.forEach((p) => { html += `<li>${p}</li>`; });
+        html += '</ul></div>';
+      });
+    }
+
+    // Tips
+    if (analysis.tips) {
+      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">Drills & Practice Tips</h3>';
+      analysis.tips.forEach((tip) => {
+        html += `<div class="tip-card"><h4>${tip.title}</h4><p>${tip.description}</p></div>`;
+      });
+    }
+
+    return html;
+  }
+
   // ===== Reset =====
   function resetApp() {
-    // Hide analysis
     analysisSection.classList.add('hidden');
     btnAnalyze.classList.add('hidden');
     btnReset.classList.add('hidden');
     btnRecord.classList.remove('hidden');
 
-    // Clear canvas
     canvasCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
 
-    // Reset analyzer frames
     if (analyzer) {
       analyzer.frames = [];
     }
     recordedChunks = [];
+    lastAnalysisResults = null;
   }
 
   // ===== File Upload =====
@@ -423,7 +769,6 @@
     const file = event.target.files[0];
     if (!file) return;
 
-    // Stop live camera if active
     if (mediaStream) {
       mediaStream.getTracks().forEach((t) => t.stop());
       stopPoseTracking();
@@ -440,40 +785,22 @@
     btnStartCamera.classList.add('hidden');
     btnRecord.classList.add('hidden');
 
-    // Analyze uploaded video by tracking poses while playing
     if (analyzer && analyzer.pose) {
       analyzer.frames = [];
       analyzer.startTracking();
 
-      cameraFeed.addEventListener(
-        'play',
-        () => {
-          startPoseTracking();
-        },
-        { once: true }
-      );
-
-      cameraFeed.addEventListener(
-        'ended',
-        () => {
-          analyzer.stopTracking();
-          stopPoseTracking();
-          btnAnalyze.classList.remove('hidden');
-          btnReset.classList.remove('hidden');
-        },
-        { once: true }
-      );
+      cameraFeed.addEventListener('play', () => { startPoseTracking(); }, { once: true });
+      cameraFeed.addEventListener('ended', () => {
+        analyzer.stopTracking();
+        stopPoseTracking();
+        btnAnalyze.classList.remove('hidden');
+        btnReset.classList.remove('hidden');
+      }, { once: true });
     } else {
-      // No pose tracking - show analyze button after a short delay
-      cameraFeed.addEventListener(
-        'ended',
-        () => {
-          btnAnalyze.classList.remove('hidden');
-          btnReset.classList.remove('hidden');
-        },
-        { once: true }
-      );
-      // Also show after 5 seconds in case video doesn't end
+      cameraFeed.addEventListener('ended', () => {
+        btnAnalyze.classList.remove('hidden');
+        btnReset.classList.remove('hidden');
+      }, { once: true });
       setTimeout(() => {
         btnAnalyze.classList.remove('hidden');
         btnReset.classList.remove('hidden');
@@ -495,4 +822,9 @@
   btnReset.addEventListener('click', resetApp);
   fileUpload.addEventListener('change', handleFileUpload);
   document.getElementById('btn-flip-camera').addEventListener('click', flipCamera);
+  document.getElementById('btn-save').addEventListener('click', saveSwing);
+  document.getElementById('btn-share').addEventListener('click', shareSwing);
+
+  // On load, check for shared swing URL
+  checkSharedSwing();
 })();

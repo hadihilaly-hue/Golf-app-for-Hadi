@@ -20,6 +20,10 @@
     <header>
       <h1>Golf Swing Analyzer</h1>
       <p class="subtitle">Film your swing. Get AI-powered feedback.</p>
+      <nav id="nav-bar">
+        <button class="nav-btn active" data-page="record">Record</button>
+        <button class="nav-btn" data-page="library">My Swings</button>
+      </nav>
     </header>
 
     <main>
@@ -150,6 +154,37 @@
           <h3>Drills & Practice Tips</h3>
           <div id="tips-content"></div>
         </div>
+
+        <!-- Save & Share buttons -->
+        <div id="save-share-section" class="hidden">
+          <div id="save-share-buttons">
+            <button id="btn-save" class="btn btn-primary">
+              <span class="icon">💾</span> Save Swing
+            </button>
+            <button id="btn-share" class="btn btn-analyze">
+              <span class="icon">📤</span> Share
+            </button>
+          </div>
+          <p id="save-status" class="hidden"></p>
+        </div>
+      </div>
+
+      <!-- Library Page -->
+      <div id="library-page" class="hidden">
+        <h2 class="library-title">My Saved Swings</h2>
+        <div id="library-empty" class="hidden">
+          <p>No saved swings yet. Record and analyze a swing, then tap Save!</p>
+        </div>
+        <div id="library-list"></div>
+      </div>
+
+      <!-- Shared Swing View -->
+      <div id="shared-view" class="hidden">
+        <h2>Shared Swing</h2>
+        <div id="shared-video-container">
+          <video id="shared-video" controls playsinline></video>
+        </div>
+        <div id="shared-analysis"></div>
       </div>
     </main>
 
