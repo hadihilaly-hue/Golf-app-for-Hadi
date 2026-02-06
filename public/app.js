@@ -152,57 +152,68 @@
     if (!track) return;
 
     const capabilities = track.getCapabilities ? track.getCapabilities() : {};
-    if (capabilities.zoom) {
+    if (capabilities.zoom && capabilities.zoom.max > capabilities.zoom.min) {
       supportsZoom = true;
       minZoom = capabilities.zoom.min || 1;
       maxZoom = capabilities.zoom.max || 1;
       currentZoom = track.getSettings().zoom || 1;
-      updateZoomUI();
     } else {
       // No native zoom - use CSS transform zoom as fallback
       supportsZoom = false;
-      minZoom = 0.5;
-      maxZoom = 3;
+      minZoom = 1;
+      maxZoom = 5;
       currentZoom = 1;
-      updateZoomUI();
     }
+    updateZoomUI();
+    applyZoom();
   }
 
   function setZoom(level) {
-    currentZoom = Math.max(minZoom, Math.min(maxZoom, level));
+    currentZoom = Math.round(Math.max(minZoom, Math.min(maxZoom, level)) * 10) / 10;
+    console.log('setZoom called, level:', level, '-> currentZoom:', currentZoom);
+    applyZoom();
+    updateZoomUI();
+  }
 
+  function applyZoom() {
     if (supportsZoom) {
-      const track = mediaStream.getVideoTracks()[0];
+      const track = mediaStream && mediaStream.getVideoTracks()[0];
       if (track) {
         track.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {
-          // Fallback to CSS zoom if constraint fails
+          // Fallback to CSS zoom if native constraint fails
+          supportsZoom = false;
           applyCSSZoom();
         });
+        // Still update mirror transform even with native zoom
+        const mirrorX = usingFrontCamera ? -1 : 1;
+        cameraFeed.style.transform = `scale(${mirrorX}, 1)`;
+        poseCanvas.style.transform = `scale(${mirrorX}, 1)`;
       }
     } else {
       applyCSSZoom();
     }
-    updateZoomUI();
   }
 
   function applyCSSZoom() {
-    const mirror = usingFrontCamera ? -1 : 1;
-    cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
-    poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+    // Use single scale(x, y) for better cross-browser compatibility
+    const mirrorX = usingFrontCamera ? -currentZoom : currentZoom;
+    cameraFeed.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    poseCanvas.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    console.log('Zoom applied:', currentZoom, 'transform:', cameraFeed.style.transform);
   }
 
   function updateZoomUI() {
     // Update active state on zoom buttons
     document.querySelectorAll('.zoom-btn').forEach((btn) => {
       const val = parseFloat(btn.dataset.zoom);
-      btn.classList.toggle('active', Math.abs(currentZoom - val) < 0.1);
+      btn.classList.toggle('active', Math.abs(currentZoom - val) < 0.05);
     });
 
     // Update slider
     const slider = document.getElementById('zoom-slider');
     if (slider) {
       slider.min = minZoom;
-      slider.max = Math.min(maxZoom, 5);
+      slider.max = maxZoom;
       slider.step = 0.1;
       slider.value = currentZoom;
     }
@@ -215,15 +226,40 @@
   }
 
   function updateCameraMirror() {
-    const mirror = usingFrontCamera ? -1 : 1;
-    if (!supportsZoom && currentZoom !== 1) {
-      cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
-      poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
-    } else {
-      cameraFeed.style.transform = `scaleX(${mirror})`;
-      poseCanvas.style.transform = `scaleX(${mirror})`;
-    }
+    const mirrorX = usingFrontCamera ? -currentZoom : currentZoom;
+    cameraFeed.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    poseCanvas.style.transform = `scale(${mirrorX}, ${currentZoom})`;
   }
+
+  // ===== Pinch-to-Zoom =====
+  let pinchStartDist = 0;
+  let pinchStartZoom = 1;
+
+  function getTouchDistance(touches) {
+    const dx = touches[0].clientX - touches[1].clientX;
+    const dy = touches[0].clientY - touches[1].clientY;
+    return Math.sqrt(dx * dx + dy * dy);
+  }
+
+  const videoContainer = document.getElementById('video-container');
+
+  videoContainer.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      pinchStartDist = getTouchDistance(e.touches);
+      pinchStartZoom = currentZoom;
+    }
+  }, { passive: false });
+
+  videoContainer.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dist = getTouchDistance(e.touches);
+      const scale = dist / pinchStartDist;
+      setZoom(pinchStartZoom * scale);
+    }
+  }, { passive: false });
+
 
   async function flipCamera() {
     usingFrontCamera = !usingFrontCamera;
