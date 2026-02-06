@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Golf Swing Analyzer</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/pose@0.5.1675469404/pose.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3.1675466862/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
+</head>
+<body>
+  <div id="app">
+    <header>
+      <h1>Golf Swing Analyzer</h1>
+      <p class="subtitle">Film your swing. Get AI-powered feedback.</p>
+    </header>
+
+    <main>
+      <!-- Camera / Video Section -->
+      <div id="video-container">
+        <video id="camera-feed" autoplay playsinline></video>
+        <canvas id="pose-canvas"></canvas>
+        <div id="recording-indicator" class="hidden">
+          <span class="rec-dot"></span> REC
+        </div>
+        <div id="countdown" class="hidden"></div>
+      </div>
+
+      <!-- Controls -->
+      <div id="controls">
+        <button id="btn-start-camera" class="btn btn-primary">
+          <span class="icon">📷</span> Start Camera
+        </button>
+        <button id="btn-record" class="btn btn-record hidden">
+          <span class="icon">🔴</span> Record Swing
+        </button>
+        <button id="btn-stop" class="btn btn-stop hidden">
+          <span class="icon">⏹️</span> Stop Recording
+        </button>
+        <button id="btn-analyze" class="btn btn-analyze hidden">
+          <span class="icon">🔍</span> Analyze My Swing
+        </button>
+        <button id="btn-reset" class="btn btn-secondary hidden">
+          <span class="icon">🔄</span> Record Again
+        </button>
+      </div>
+
+      <!-- Upload alternative -->
+      <div id="upload-section">
+        <p class="divider-text">— or upload a video —</p>
+        <label for="file-upload" class="btn btn-secondary upload-btn">
+          <span class="icon">📁</span> Upload Swing Video
+        </label>
+        <input type="file" id="file-upload" accept="video/*" hidden>
+      </div>
+
+      <!-- Analysis Results -->
+      <div id="analysis-section" class="hidden">
+        <h2>Swing Analysis</h2>
+        <div id="loading-analysis" class="hidden">
+          <div class="spinner"></div>
+          <p>Analyzing your swing...</p>
+        </div>
+
+        <!-- Pose tracking metrics -->
+        <div id="pose-metrics" class="hidden">
+          <h3>Pose Tracking Data</h3>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <span class="metric-label">Shoulder Rotation</span>
+              <span id="metric-shoulder" class="metric-value">—</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Hip Rotation</span>
+              <span id="metric-hip" class="metric-value">—</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Spine Angle</span>
+              <span id="metric-spine" class="metric-value">—</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Knee Flex</span>
+              <span id="metric-knee" class="metric-value">—</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Head Movement</span>
+              <span id="metric-head" class="metric-value">—</span>
+            </div>
+            <div class="metric-card">
+              <span class="metric-label">Weight Transfer</span>
+              <span id="metric-weight" class="metric-value">—</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Swing phases -->
+        <div id="swing-phases" class="hidden">
+          <h3>Swing Phases Detected</h3>
+          <div class="phases-timeline">
+            <div class="phase" data-phase="address">
+              <div class="phase-dot"></div>
+              <span>Address</span>
+            </div>
+            <div class="phase-line"></div>
+            <div class="phase" data-phase="backswing">
+              <div class="phase-dot"></div>
+              <span>Backswing</span>
+            </div>
+            <div class="phase-line"></div>
+            <div class="phase" data-phase="top">
+              <div class="phase-dot"></div>
+              <span>Top</span>
+            </div>
+            <div class="phase-line"></div>
+            <div class="phase" data-phase="downswing">
+              <div class="phase-dot"></div>
+              <span>Downswing</span>
+            </div>
+            <div class="phase-line"></div>
+            <div class="phase" data-phase="impact">
+              <div class="phase-dot"></div>
+              <span>Impact</span>
+            </div>
+            <div class="phase-line"></div>
+            <div class="phase" data-phase="follow-through">
+              <div class="phase-dot"></div>
+              <span>Follow-Through</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- AI Critique -->
+        <div id="critique-section" class="hidden">
+          <h3>AI Coach Feedback</h3>
+          <div id="critique-content"></div>
+        </div>
+
+        <!-- Tips -->
+        <div id="tips-section" class="hidden">
+          <h3>Drills & Practice Tips</h3>
+          <div id="tips-content"></div>
+        </div>
+      </div>
+    </main>
+
+    <footer>
+      <p>Golf Swing Analyzer &mdash; Powered by AI pose estimation</p>
+    </footer>
+  </div>
+
+  <script src="swing-analyzer.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

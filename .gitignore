@@ -1,0 +1,5 @@
+node_modules/
+uploads/*.webm
+uploads/*.mp4
+.env
+.DS_Store
