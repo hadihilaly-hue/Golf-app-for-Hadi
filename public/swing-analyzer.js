@@ -74,25 +74,7 @@ class SwingAnalyzer {
     }
   }
 
-  // ===== Analysis Methods =====
-
-  analyzeSwing() {
-    if (this.frames.length < 10) {
-      return {
-        error: true,
-        message:
-          'Not enough frames captured. Please ensure you are visible in the camera and try a longer recording.',
-      };
-    }
-
-    const phases = this._detectPhases();
-    const metrics = this._calculateMetrics();
-    const critique = this._generateCritique(metrics, phases);
-    const tips = this._generateTips(metrics, phases);
-    const score = this._calculateScore(metrics);
-
-    return { phases, metrics, critique, tips, score, frameCount: this.frames.length };
-  }
+  // ===== Utility Methods =====
 
   _getAngle(a, b, c) {
     const radians =
@@ -107,10 +89,141 @@ class SwingAnalyzer {
   }
 
   _getMidpoint(a, b) {
-    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: ((a.z || 0) + (b.z || 0)) / 2 };
   }
 
-  _detectPhases() {
+  // Average landmarks over a range of frames to reduce noise
+  _averageLandmarks(startIdx, endIdx) {
+    const count = endIdx - startIdx;
+    if (count <= 0) return this.frames[startIdx].landmarks;
+
+    const avg = this.frames[startIdx].landmarks.map((lm) => ({
+      x: 0, y: 0, z: 0, visibility: 0,
+    }));
+
+    for (let i = startIdx; i < endIdx; i++) {
+      const lms = this.frames[i].landmarks;
+      for (let j = 0; j < lms.length; j++) {
+        avg[j].x += lms[j].x / count;
+        avg[j].y += lms[j].y / count;
+        avg[j].z += (lms[j].z || 0) / count;
+        avg[j].visibility += (lms[j].visibility || 0) / count;
+      }
+    }
+    return avg;
+  }
+
+  // Get the shoulder line angle (rotation in the camera plane)
+  _shoulderLineAngle(landmarks) {
+    const L = this.LANDMARKS;
+    const ls = landmarks[L.LEFT_SHOULDER];
+    const rs = landmarks[L.RIGHT_SHOULDER];
+    return Math.atan2(ls.y - rs.y, ls.x - rs.x) * (180 / Math.PI);
+  }
+
+  // Get the hip line angle
+  _hipLineAngle(landmarks) {
+    const L = this.LANDMARKS;
+    const lh = landmarks[L.LEFT_HIP];
+    const rh = landmarks[L.RIGHT_HIP];
+    return Math.atan2(lh.y - rh.y, lh.x - rh.x) * (180 / Math.PI);
+  }
+
+  // ===== Main Analysis =====
+
+  analyzeSwing() {
+    if (this.frames.length < 10) {
+      return {
+        error: true,
+        message:
+          'Not enough frames captured. Please ensure you are visible in the camera and try a longer recording.',
+      };
+    }
+
+    // Step 1: Detect key phase frames using wrist trajectory
+    const phaseFrames = this._findPhaseFrames();
+
+    // Step 2: Calculate metrics using averaged data at each phase
+    const metrics = this._calculateMetrics(phaseFrames);
+
+    // Step 3: Detect which phases were present
+    const phases = this._detectPhases(phaseFrames);
+
+    // Step 4: Generate critique and tips
+    const critique = this._generateCritique(metrics, phases);
+    const tips = this._generateTips(metrics, phases);
+
+    // Step 5: Calculate score
+    const score = this._calculateScore(metrics, phases);
+
+    return { phases, metrics, critique, tips, score, frameCount: this.frames.length };
+  }
+
+  _findPhaseFrames() {
+    const L = this.LANDMARKS;
+    const total = this.frames.length;
+
+    // Calculate wrist midpoint y-position for each frame
+    const wristY = this.frames.map((f) => {
+      const lw = f.landmarks[L.LEFT_WRIST];
+      const rw = f.landmarks[L.RIGHT_WRIST];
+      return (lw.y + rw.y) / 2;
+    });
+
+    // Smooth the wrist trajectory with a moving average (window=5) to reduce noise
+    const smoothed = [];
+    const window = Math.min(5, Math.floor(total / 3));
+    for (let i = 0; i < total; i++) {
+      let sum = 0;
+      let count = 0;
+      for (let j = Math.max(0, i - window); j <= Math.min(total - 1, i + window); j++) {
+        sum += wristY[j];
+        count++;
+      }
+      smoothed.push(sum / count);
+    }
+
+    // Find the TOP of backswing: lowest y-value (highest point on screen)
+    // Only look in the first 70% of frames
+    let topIdx = 0;
+    let topY = Infinity;
+    const searchEnd = Math.floor(total * 0.7);
+    for (let i = Math.floor(total * 0.1); i < searchEnd; i++) {
+      if (smoothed[i] < topY) {
+        topY = smoothed[i];
+        topIdx = i;
+      }
+    }
+
+    // Find IMPACT: highest y-value (lowest point) AFTER the top
+    let impactIdx = topIdx;
+    let impactY = -Infinity;
+    for (let i = topIdx; i < total; i++) {
+      if (smoothed[i] > impactY) {
+        impactY = smoothed[i];
+        impactIdx = i;
+      }
+    }
+
+    // Address: average of first few frames (before backswing starts)
+    const addressEnd = Math.max(1, Math.floor(topIdx * 0.3));
+    const addressIdx = Math.floor(addressEnd / 2);
+
+    // Follow-through: frames after impact
+    const followIdx = Math.min(total - 1, impactIdx + Math.floor((total - impactIdx) * 0.5));
+
+    return {
+      addressStart: 0,
+      addressEnd: addressEnd,
+      addressIdx: addressIdx,
+      topIdx: topIdx,
+      impactIdx: impactIdx,
+      followIdx: followIdx,
+      total: total,
+    };
+  }
+
+  _detectPhases(pf) {
     const detected = {
       address: false,
       backswing: false,
@@ -120,281 +233,238 @@ class SwingAnalyzer {
       'follow-through': false,
     };
 
-    if (this.frames.length < 10) return detected;
+    // Address: detected if we have frames before backswing starts
+    if (pf.addressEnd > 0) detected.address = true;
 
-    const L = this.LANDMARKS;
-    const totalFrames = this.frames.length;
+    // Backswing: detected if top is clearly after address
+    if (pf.topIdx > pf.addressEnd) detected.backswing = true;
 
-    // Track wrist positions over time to detect swing phases
-    const wristPositions = this.frames.map((f) => {
-      const lw = f.landmarks[L.LEFT_WRIST];
-      const rw = f.landmarks[L.RIGHT_WRIST];
-      return this._getMidpoint(lw, rw);
-    });
+    // Top: detected if it's not at the very beginning or end
+    if (pf.topIdx > 2 && pf.topIdx < pf.total - 2) detected.top = true;
 
-    // Track shoulder line angles
-    const shoulderAngles = this.frames.map((f) => {
-      const ls = f.landmarks[L.LEFT_SHOULDER];
-      const rs = f.landmarks[L.RIGHT_SHOULDER];
-      return Math.atan2(ls.y - rs.y, ls.x - rs.x) * (180 / Math.PI);
-    });
+    // Downswing: detected if impact is after top
+    if (pf.impactIdx > pf.topIdx + 1) detected.downswing = true;
 
-    // Find highest wrist position (top of backswing)
-    let highestY = Infinity;
-    let topFrameIdx = 0;
-    wristPositions.forEach((wp, i) => {
-      if (wp.y < highestY) {
-        highestY = wp.y;
-        topFrameIdx = i;
-      }
-    });
+    // Impact: detected if we found it
+    if (pf.impactIdx > pf.topIdx) detected.impact = true;
 
-    // Find lowest wrist position near middle-to-end (impact zone)
-    let lowestY = -Infinity;
-    let impactFrameIdx = topFrameIdx;
-    for (let i = topFrameIdx; i < totalFrames; i++) {
-      if (wristPositions[i].y > lowestY) {
-        lowestY = wristPositions[i].y;
-        impactFrameIdx = i;
-      }
-    }
-
-    // Assign phases based on frame positions
-    const addressEnd = Math.floor(totalFrames * 0.1);
-    const backswingEnd = topFrameIdx;
-    const downswingEnd = impactFrameIdx;
-
-    // Address: first ~10% of frames where golfer is relatively still
-    if (addressEnd > 0) {
-      const firstWrist = wristPositions[0];
-      const addressWrist = wristPositions[Math.min(addressEnd, totalFrames - 1)];
-      const movement = this._getDistance(firstWrist, addressWrist);
-      if (movement < 0.15) detected.address = true;
-    }
-
-    // Backswing: wrists moving up
-    if (topFrameIdx > addressEnd) {
-      detected.backswing = true;
-    }
-
-    // Top of backswing
-    if (topFrameIdx > 0 && topFrameIdx < totalFrames - 1) {
-      detected.top = true;
-    }
-
-    // Downswing
-    if (impactFrameIdx > topFrameIdx) {
-      detected.downswing = true;
-    }
-
-    // Impact
-    if (impactFrameIdx > topFrameIdx && impactFrameIdx < totalFrames) {
-      detected.impact = true;
-    }
-
-    // Follow-through: frames after impact
-    if (impactFrameIdx < totalFrames - 3) {
-      detected['follow-through'] = true;
-    }
+    // Follow-through: frames exist after impact
+    if (pf.impactIdx < pf.total - 2) detected['follow-through'] = true;
 
     return detected;
   }
 
-  _calculateMetrics() {
+  _calculateMetrics(pf) {
     const L = this.LANDMARKS;
     const metrics = {};
 
-    // Sample key frames
-    const startFrame = this.frames[0];
-    const midIdx = Math.floor(this.frames.length / 2);
-    const midFrame = this.frames[midIdx];
-    const endFrame = this.frames[this.frames.length - 1];
+    // Get averaged landmarks at each key phase (average over ~5 frames for stability)
+    const avgRadius = 3;
+    const addressLM = this._averageLandmarks(
+      Math.max(0, pf.addressIdx - avgRadius),
+      Math.min(pf.addressEnd, pf.addressIdx + avgRadius)
+    );
+    const topLM = this._averageLandmarks(
+      Math.max(0, pf.topIdx - avgRadius),
+      Math.min(pf.total, pf.topIdx + avgRadius)
+    );
+    const impactLM = this._averageLandmarks(
+      Math.max(0, pf.impactIdx - avgRadius),
+      Math.min(pf.total, pf.impactIdx + avgRadius)
+    );
+    const followLM = this._averageLandmarks(
+      Math.max(0, pf.followIdx - avgRadius),
+      Math.min(pf.total, pf.followIdx + avgRadius)
+    );
 
     // --- Shoulder Rotation ---
-    const startShoulderAngle = this._getAngle(
-      startFrame.landmarks[L.LEFT_HIP],
-      startFrame.landmarks[L.LEFT_SHOULDER],
-      startFrame.landmarks[L.RIGHT_SHOULDER]
-    );
-    const midShoulderAngle = this._getAngle(
-      midFrame.landmarks[L.LEFT_HIP],
-      midFrame.landmarks[L.LEFT_SHOULDER],
-      midFrame.landmarks[L.RIGHT_SHOULDER]
-    );
-    const shoulderRotation = Math.abs(midShoulderAngle - startShoulderAngle);
+    // Measure change in shoulder line angle from address to top of backswing
+    const shoulderAtAddress = this._shoulderLineAngle(addressLM);
+    const shoulderAtTop = this._shoulderLineAngle(topLM);
+    const shoulderRotation = Math.abs(shoulderAtTop - shoulderAtAddress);
+
     metrics.shoulderRotation = {
       value: Math.round(shoulderRotation),
       unit: '°',
-      rating: shoulderRotation > 70 ? 'good' : shoulderRotation > 45 ? 'warning' : 'needs-work',
+      rating: shoulderRotation >= 25 ? 'good' : shoulderRotation >= 12 ? 'warning' : 'needs-work',
       detail:
-        shoulderRotation > 70
-          ? 'Great shoulder turn!'
-          : shoulderRotation > 45
-          ? 'Decent rotation, could turn more'
-          : 'Limited shoulder turn - try to rotate more',
+        shoulderRotation >= 25
+          ? 'Good shoulder rotation'
+          : shoulderRotation >= 12
+          ? 'Moderate shoulder turn - try to rotate your upper body more'
+          : 'Limited shoulder turn - focus on turning your back toward the target',
     };
 
     // --- Hip Rotation ---
-    const startHipAngle = this._getAngle(
-      startFrame.landmarks[L.LEFT_KNEE],
-      startFrame.landmarks[L.LEFT_HIP],
-      startFrame.landmarks[L.RIGHT_HIP]
-    );
-    const midHipAngle = this._getAngle(
-      midFrame.landmarks[L.LEFT_KNEE],
-      midFrame.landmarks[L.LEFT_HIP],
-      midFrame.landmarks[L.RIGHT_HIP]
-    );
-    const hipRotation = Math.abs(midHipAngle - startHipAngle);
+    // Measure change in hip line from address to top
+    const hipAtAddress = this._hipLineAngle(addressLM);
+    const hipAtTop = this._hipLineAngle(topLM);
+    const hipRotation = Math.abs(hipAtTop - hipAtAddress);
+
     metrics.hipRotation = {
       value: Math.round(hipRotation),
       unit: '°',
-      rating: hipRotation > 35 ? 'good' : hipRotation > 20 ? 'warning' : 'needs-work',
+      rating: hipRotation >= 12 ? 'good' : hipRotation >= 5 ? 'warning' : 'needs-work',
       detail:
-        hipRotation > 35
-          ? 'Good hip turn'
-          : hipRotation > 20
-          ? 'Moderate hip rotation'
-          : 'Hips are too static - engage your lower body more',
+        hipRotation >= 12
+          ? 'Good hip rotation'
+          : hipRotation >= 5
+          ? 'Some hip turn - allow your hips to rotate more freely'
+          : 'Very limited hip rotation - your lower body needs to engage more',
     };
 
-    // --- Spine Angle (tilt) ---
-    const shoulderMid = this._getMidpoint(
-      startFrame.landmarks[L.LEFT_SHOULDER],
-      startFrame.landmarks[L.RIGHT_SHOULDER]
+    // --- Spine Angle at Address ---
+    const shoulderMid = this._getMidpoint(addressLM[L.LEFT_SHOULDER], addressLM[L.RIGHT_SHOULDER]);
+    const hipMid = this._getMidpoint(addressLM[L.LEFT_HIP], addressLM[L.RIGHT_HIP]);
+    const spineAngle = Math.abs(
+      Math.atan2(shoulderMid.y - hipMid.y, shoulderMid.x - hipMid.x) * (180 / Math.PI)
     );
-    const hipMid = this._getMidpoint(
-      startFrame.landmarks[L.LEFT_HIP],
-      startFrame.landmarks[L.RIGHT_HIP]
-    );
-    const spineAngle =
-      Math.abs(Math.atan2(shoulderMid.y - hipMid.y, shoulderMid.x - hipMid.x) * (180 / Math.PI));
     const spineFromVertical = Math.abs(90 - spineAngle);
+
     metrics.spineAngle = {
       value: Math.round(spineFromVertical),
       unit: '°',
       rating:
-        spineFromVertical > 15 && spineFromVertical < 40
+        spineFromVertical >= 10 && spineFromVertical <= 45
           ? 'good'
-          : spineFromVertical >= 10 && spineFromVertical <= 50
+          : spineFromVertical >= 5 && spineFromVertical <= 55
           ? 'warning'
           : 'needs-work',
       detail:
-        spineFromVertical > 15 && spineFromVertical < 40
-          ? 'Good spine tilt at address'
-          : 'Adjust your spine angle - aim for 20-35° forward tilt',
+        spineFromVertical >= 10 && spineFromVertical <= 45
+          ? 'Good spine angle at address'
+          : spineFromVertical < 10
+          ? 'Standing too upright - bend more from your hips'
+          : 'Bent over too much - stand a bit taller at address',
     };
 
-    // --- Knee Flex ---
-    const kneeAngle = this._getAngle(
-      startFrame.landmarks[L.LEFT_HIP],
-      startFrame.landmarks[L.LEFT_KNEE],
-      startFrame.landmarks[L.LEFT_ANKLE]
+    // --- Spine Angle Consistency (maintenance through the swing) ---
+    const shoulderMidTop = this._getMidpoint(topLM[L.LEFT_SHOULDER], topLM[L.RIGHT_SHOULDER]);
+    const hipMidTop = this._getMidpoint(topLM[L.LEFT_HIP], topLM[L.RIGHT_HIP]);
+    const spineAtTop = Math.abs(
+      Math.atan2(shoulderMidTop.y - hipMidTop.y, shoulderMidTop.x - hipMidTop.x) * (180 / Math.PI)
     );
-    const kneeFlex = 180 - kneeAngle;
+    const spineChange = Math.abs(spineAngle - spineAtTop);
+
+    // --- Knee Flex at Address ---
+    // Average both knees
+    const leftKneeAngle = this._getAngle(
+      addressLM[L.LEFT_HIP], addressLM[L.LEFT_KNEE], addressLM[L.LEFT_ANKLE]
+    );
+    const rightKneeAngle = this._getAngle(
+      addressLM[L.RIGHT_HIP], addressLM[L.RIGHT_KNEE], addressLM[L.RIGHT_ANKLE]
+    );
+    const avgKneeAngle = (leftKneeAngle + rightKneeAngle) / 2;
+    const kneeFlex = 180 - avgKneeAngle;
+
     metrics.kneeFlex = {
       value: Math.round(kneeFlex),
       unit: '°',
-      rating: kneeFlex > 15 && kneeFlex < 40 ? 'good' : kneeFlex >= 10 ? 'warning' : 'needs-work',
+      rating:
+        kneeFlex >= 8 && kneeFlex <= 45
+          ? 'good'
+          : kneeFlex >= 3 && kneeFlex <= 55
+          ? 'warning'
+          : 'needs-work',
       detail:
-        kneeFlex > 15 && kneeFlex < 40
-          ? 'Good knee flex'
-          : kneeFlex < 15
-          ? 'Knees too straight - add more flex'
-          : 'Too much knee bend - stand a bit taller',
+        kneeFlex >= 8 && kneeFlex <= 45
+          ? 'Good athletic knee flex'
+          : kneeFlex < 8
+          ? 'Knees too straight - add some athletic flex'
+          : 'Too much knee bend - straighten up slightly',
     };
 
-    // --- Head Movement (stability) ---
-    const headPositions = this.frames.map((f) => f.landmarks[L.NOSE]);
-    let maxHeadDrift = 0;
-    const refHead = headPositions[0];
-    headPositions.forEach((h) => {
-      const drift = this._getDistance(refHead, h);
-      if (drift > maxHeadDrift) maxHeadDrift = drift;
-    });
+    // --- Head Stability ---
+    // Track head position across all frames, using median to ignore outliers
+    const headPositions = this.frames.map((f) => ({
+      x: f.landmarks[L.NOSE].x,
+      y: f.landmarks[L.NOSE].y,
+    }));
+
+    // Use the average of the first few frames as reference (address position)
+    const refFrames = Math.min(5, Math.floor(this.frames.length * 0.15));
+    let refX = 0, refY = 0;
+    for (let i = 0; i < refFrames; i++) {
+      refX += headPositions[i].x / refFrames;
+      refY += headPositions[i].y / refFrames;
+    }
+
+    // Calculate drift distances, then use the 90th percentile (ignore spikes)
+    const drifts = headPositions.map((h) =>
+      Math.sqrt((h.x - refX) ** 2 + (h.y - refY) ** 2)
+    );
+    drifts.sort((a, b) => a - b);
+    const p90Drift = drifts[Math.floor(drifts.length * 0.9)];
+
     metrics.headMovement = {
-      value: maxHeadDrift < 0.03 ? 'Stable' : maxHeadDrift < 0.06 ? 'Slight' : 'Excessive',
+      value: p90Drift < 0.05 ? 'Stable' : p90Drift < 0.09 ? 'Slight' : 'Excessive',
       unit: '',
-      rating: maxHeadDrift < 0.03 ? 'good' : maxHeadDrift < 0.06 ? 'warning' : 'needs-work',
+      rating: p90Drift < 0.05 ? 'good' : p90Drift < 0.09 ? 'warning' : 'needs-work',
       detail:
-        maxHeadDrift < 0.03
-          ? 'Excellent head stability!'
-          : maxHeadDrift < 0.06
-          ? 'Minor head movement detected'
-          : 'Too much head movement - focus on keeping your head still',
+        p90Drift < 0.05
+          ? 'Great head stability through the swing'
+          : p90Drift < 0.09
+          ? 'Some head movement - try to keep your head steadier'
+          : 'Significant head movement - focus on rotating around a fixed point',
     };
 
     // --- Weight Transfer ---
-    const startLeftHip = startFrame.landmarks[L.LEFT_HIP];
-    const startRightHip = startFrame.landmarks[L.RIGHT_HIP];
-    const endLeftHip = endFrame.landmarks[L.LEFT_HIP];
-    const endRightHip = endFrame.landmarks[L.RIGHT_HIP];
-    const startCenter = (startLeftHip.x + startRightHip.x) / 2;
-    const endCenter = (endLeftHip.x + endRightHip.x) / 2;
-    const weightShift = Math.abs(endCenter - startCenter);
+    // Measure hip center shift from address to follow-through
+    const addressHipCenter = (addressLM[L.LEFT_HIP].x + addressLM[L.RIGHT_HIP].x) / 2;
+    const followHipCenter = (followLM[L.LEFT_HIP].x + followLM[L.RIGHT_HIP].x) / 2;
+    const weightShift = Math.abs(followHipCenter - addressHipCenter);
+
     metrics.weightTransfer = {
-      value: weightShift > 0.04 ? 'Good' : weightShift > 0.02 ? 'Partial' : 'Minimal',
+      value: weightShift > 0.03 ? 'Good' : weightShift > 0.015 ? 'Partial' : 'Minimal',
       unit: '',
-      rating: weightShift > 0.04 ? 'good' : weightShift > 0.02 ? 'warning' : 'needs-work',
+      rating: weightShift > 0.03 ? 'good' : weightShift > 0.015 ? 'warning' : 'needs-work',
       detail:
-        weightShift > 0.04
-          ? 'Good weight transfer through the swing'
-          : weightShift > 0.02
-          ? 'Some weight transfer - try to shift more to your front foot'
-          : 'Very little weight transfer detected - practice shifting weight',
+        weightShift > 0.03
+          ? 'Good weight transfer to the front foot'
+          : weightShift > 0.015
+          ? 'Some weight shift detected - exaggerate the move to your front foot'
+          : 'Limited weight transfer - practice stepping into your swing',
     };
+
+    // Store spine consistency as internal metric for scoring
+    metrics._spineConsistency = spineChange;
 
     return metrics;
   }
 
   _generateCritique(metrics, phases) {
     const sections = [];
-
-    // What's good
     const goodPoints = [];
     const improvePoints = [];
     const criticalPoints = [];
 
     Object.entries(metrics).forEach(([key, m]) => {
+      if (key.startsWith('_')) return; // skip internal metrics
       if (m.rating === 'good') goodPoints.push(m.detail);
       else if (m.rating === 'warning') improvePoints.push(m.detail);
       else criticalPoints.push(m.detail);
     });
 
-    if (goodPoints.length > 0) {
-      sections.push({
-        type: 'good',
-        title: 'What You\'re Doing Well',
-        points: goodPoints,
-      });
-    }
-
-    if (improvePoints.length > 0) {
-      sections.push({
-        type: 'improve',
-        title: 'Areas to Improve',
-        points: improvePoints,
-      });
-    }
-
-    if (criticalPoints.length > 0) {
-      sections.push({
-        type: 'critical',
-        title: 'Key Issues to Address',
-        points: criticalPoints,
-      });
-    }
-
     // Phase-based feedback
     if (!phases.address) {
       improvePoints.push(
-        'Could not clearly detect your address position. Make sure to stand still briefly before swinging.'
+        'Could not clearly detect your address position. Stand still briefly before swinging.'
       );
     }
     if (!phases['follow-through']) {
       improvePoints.push(
-        'Follow-through seems incomplete. Focus on finishing your swing with your belt buckle facing the target.'
+        'Follow-through seems incomplete. Finish with your belt buckle facing the target.'
       );
+    }
+
+    if (goodPoints.length > 0) {
+      sections.push({ type: 'good', title: 'What You\'re Doing Well', points: goodPoints });
+    }
+    if (improvePoints.length > 0) {
+      sections.push({ type: 'improve', title: 'Areas to Improve', points: improvePoints });
+    }
+    if (criticalPoints.length > 0) {
+      sections.push({ type: 'critical', title: 'Key Issues to Address', points: criticalPoints });
     }
 
     return sections;
@@ -407,7 +477,7 @@ class SwingAnalyzer {
       tips.push({
         title: 'Shoulder Turn Drill',
         description:
-          'Hold a club across your shoulders and practice turning back until the club points at the ball. Feel the stretch in your back muscles. Aim for 90° of shoulder rotation.',
+          'Hold a club across your shoulders and practice turning back until the club points at the ball. Feel the stretch in your back muscles.',
       });
     }
 
@@ -415,7 +485,7 @@ class SwingAnalyzer {
       tips.push({
         title: 'Hip Engagement Drill',
         description:
-          'Place a chair against your lead hip at address. On the backswing, your trail hip should turn away from the chair. On the downswing, bump the chair with your lead hip to start the sequence.',
+          'Place a chair against your lead hip at address. On the backswing, your trail hip should turn away. On the downswing, bump the chair with your lead hip.',
       });
     }
 
@@ -423,7 +493,7 @@ class SwingAnalyzer {
       tips.push({
         title: 'Head Stability Drill',
         description:
-          'Have a friend hold a club head gently on top of your head while you make slow swings. Your head should stay in contact. This trains you to rotate around a fixed point.',
+          'Have a friend hold a club gently on top of your head while you make slow swings. Your head should stay in contact throughout.',
       });
     }
 
@@ -431,7 +501,7 @@ class SwingAnalyzer {
       tips.push({
         title: 'Step Drill for Weight Transfer',
         description:
-          'Take your normal stance, then on the downswing, actually step your lead foot toward the target before striking. This exaggerates the feel of proper weight transfer.',
+          'On the downswing, step your lead foot toward the target before striking. This exaggerates proper weight transfer.',
       });
     }
 
@@ -439,7 +509,7 @@ class SwingAnalyzer {
       tips.push({
         title: 'Spine Angle Practice',
         description:
-          'Stand with your back against a wall, then bend forward from your hips (not your waist) until you feel athletic. Your rear should stay on the wall. This is your ideal spine angle.',
+          'Stand with your back against a wall, bend forward from your hips until you feel athletic. Your rear stays on the wall.',
       });
     }
 
@@ -447,29 +517,58 @@ class SwingAnalyzer {
       tips.push({
         title: 'Athletic Stance Drill',
         description:
-          'Stand with feet shoulder-width apart, flex your knees slightly as if sitting on a bar stool, and let your arms hang naturally. This is your ideal knee flex for a consistent swing.',
+          'Stand with feet shoulder-width apart, flex your knees slightly as if sitting on a bar stool. Let arms hang naturally.',
       });
     }
 
-    // Always include a general tip
     tips.push({
       title: 'Tempo Training',
       description:
-        'Count "1" on the backswing and "2" on the downswing. A good swing tempo ratio is about 3:1 (backswing takes 3x longer than downswing). Use a metronome app set to 72 BPM for practice.',
+        'Count "1" on the backswing and "2" on the downswing. A 3:1 ratio is ideal. Use a metronome at 72 BPM.',
     });
 
     return tips;
   }
 
-  _calculateScore(metrics) {
-    let score = 50; // Base score
-    const ratings = Object.values(metrics).map((m) => m.rating);
-    ratings.forEach((r) => {
-      if (r === 'good') score += 8;
-      else if (r === 'warning') score += 3;
-      else score -= 2;
+  _calculateScore(metrics, phases) {
+    // Weighted scoring system - each metric contributes based on importance
+    const weights = {
+      shoulderRotation: 20,
+      hipRotation: 15,
+      spineAngle: 15,
+      kneeFlex: 12,
+      headMovement: 20,
+      weightTransfer: 18,
+    };
+
+    let totalWeight = 0;
+    let weightedScore = 0;
+
+    Object.entries(weights).forEach(([key, weight]) => {
+      const m = metrics[key];
+      if (!m) return;
+      totalWeight += weight;
+
+      if (m.rating === 'good') weightedScore += weight * 1.0;
+      else if (m.rating === 'warning') weightedScore += weight * 0.6;
+      else weightedScore += weight * 0.25;
     });
-    return Math.min(100, Math.max(0, score));
+
+    // Base score from metrics (0-100 range)
+    let score = totalWeight > 0 ? (weightedScore / totalWeight) * 100 : 50;
+
+    // Bonus for spine consistency (up to +5)
+    if (metrics._spineConsistency !== undefined) {
+      if (metrics._spineConsistency < 8) score += 5;
+      else if (metrics._spineConsistency < 15) score += 2;
+    }
+
+    // Bonus for having all phases detected (up to +5)
+    const phaseCount = Object.values(phases).filter(Boolean).length;
+    score += (phaseCount / 6) * 5;
+
+    // Round and clamp
+    return Math.round(Math.min(100, Math.max(0, score)));
   }
 
   // Draw pose on canvas
@@ -478,7 +577,6 @@ class SwingAnalyzer {
 
     if (!results.poseLandmarks) return;
 
-    // Draw connections
     const connections = [
       [11, 12], [11, 13], [13, 15], [12, 14], [14, 16],
       [11, 23], [12, 24], [23, 24], [23, 25], [24, 26],
@@ -496,7 +594,6 @@ class SwingAnalyzer {
       canvasCtx.stroke();
     });
 
-    // Draw landmarks
     results.poseLandmarks.forEach((lm, i) => {
       if (lm.visibility < 0.5) return;
       canvasCtx.beginPath();
