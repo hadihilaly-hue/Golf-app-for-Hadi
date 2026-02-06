@@ -56,10 +56,19 @@
   // ===== Camera =====
   async function startCamera() {
     try {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
-        audio: false,
-      });
+      // Try front camera first, fall back to any camera
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+      } catch (e) {
+        // Fallback: request any available camera
+        mediaStream = await navigator.mediaDevices.getUserMedia({
+          video: true,
+          audio: false,
+        });
+      }
       cameraFeed.srcObject = mediaStream;
       cameraActive = true;
 
@@ -71,8 +80,16 @@
         startPoseTracking();
       }
     } catch (err) {
-      alert('Could not access camera. Please allow camera permissions and try again.');
       console.error('Camera error:', err);
+      // Reset the button so the user can try again
+      btnStartCamera.innerHTML = '<span class="icon">📷</span> Start Camera';
+      btnStartCamera.disabled = false;
+
+      if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+        alert('Camera permission was denied. To fix this:\n\n1. Open Settings on your iPhone\n2. Scroll down to Safari\n3. Make sure "Camera" is set to "Allow"\n4. Come back and tap Start Camera again');
+      } else {
+        alert('Could not access camera. Please make sure your device has a camera and try again.');
+      }
     }
   }
 
@@ -103,10 +120,16 @@
 
     recordedChunks = [];
 
-    const options = { mimeType: 'video/webm;codecs=vp9' };
-    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-      options.mimeType = 'video/webm';
+    // Pick a supported recording format (Safari uses mp4, Chrome uses webm)
+    let mimeType = '';
+    const types = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'];
+    for (const type of types) {
+      if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)) {
+        mimeType = type;
+        break;
+      }
     }
+    const options = mimeType ? { mimeType } : {};
 
     mediaRecorder = new MediaRecorder(mediaStream, options);
     mediaRecorder.ondataavailable = (event) => {
@@ -439,7 +462,7 @@
 
   // ===== Event Listeners =====
   btnStartCamera.addEventListener('click', async () => {
-    btnStartCamera.textContent = 'Starting...';
+    btnStartCamera.innerHTML = '<span class="icon">⏳</span> Starting...';
     btnStartCamera.disabled = true;
     await initAnalyzer();
     await startCamera();
