@@ -170,6 +170,7 @@
 
   function setZoom(level) {
     currentZoom = Math.round(Math.max(minZoom, Math.min(maxZoom, level)) * 10) / 10;
+    console.log('setZoom called, level:', level, '-> currentZoom:', currentZoom);
     applyZoom();
     updateZoomUI();
   }
@@ -183,6 +184,10 @@
           supportsZoom = false;
           applyCSSZoom();
         });
+        // Still update mirror transform even with native zoom
+        const mirrorX = usingFrontCamera ? -1 : 1;
+        cameraFeed.style.transform = `scale(${mirrorX}, 1)`;
+        poseCanvas.style.transform = `scale(${mirrorX}, 1)`;
       }
     } else {
       applyCSSZoom();
@@ -190,9 +195,11 @@
   }
 
   function applyCSSZoom() {
-    const mirror = usingFrontCamera ? -1 : 1;
-    cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
-    poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+    // Use single scale(x, y) for better cross-browser compatibility
+    const mirrorX = usingFrontCamera ? -currentZoom : currentZoom;
+    cameraFeed.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    poseCanvas.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    console.log('Zoom applied:', currentZoom, 'transform:', cameraFeed.style.transform);
   }
 
   function updateZoomUI() {
@@ -219,9 +226,9 @@
   }
 
   function updateCameraMirror() {
-    const mirror = usingFrontCamera ? -1 : 1;
-    cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
-    poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+    const mirrorX = usingFrontCamera ? -currentZoom : currentZoom;
+    cameraFeed.style.transform = `scale(${mirrorX}, ${currentZoom})`;
+    poseCanvas.style.transform = `scale(${mirrorX}, ${currentZoom})`;
   }
 
   // ===== Pinch-to-Zoom =====

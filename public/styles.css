@@ -72,6 +72,7 @@ header h1 {
   object-fit: cover;
   transform: scaleX(-1);
   transform-origin: center center;
+  will-change: transform;
 }
 
 #pose-canvas {
@@ -82,6 +83,7 @@ header h1 {
   height: 100%;
   transform: scaleX(-1);
   transform-origin: center center;
+  will-change: transform;
   pointer-events: none;
 }
 
