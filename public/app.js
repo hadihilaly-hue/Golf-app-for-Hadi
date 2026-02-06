@@ -35,6 +35,7 @@
   let isRecording = false;
   let poseTrackingInterval = null;
   let cameraActive = false;
+  let usingFrontCamera = true;
 
   // ===== Initialize Analyzer =====
   async function initAnalyzer() {
@@ -56,10 +57,15 @@
   // ===== Camera =====
   async function startCamera() {
     try {
-      // Try front camera first, fall back to any camera
+      // Stop existing stream if switching cameras
+      if (mediaStream) {
+        mediaStream.getTracks().forEach((t) => t.stop());
+      }
+
+      const facingMode = usingFrontCamera ? 'user' : 'environment';
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+          video: { facingMode, width: { ideal: 1280 }, height: { ideal: 720 } },
           audio: false,
         });
       } catch (e) {
@@ -72,8 +78,12 @@
       cameraFeed.srcObject = mediaStream;
       cameraActive = true;
 
+      // Mirror front camera, don't mirror back camera
+      updateCameraMirror();
+
       btnStartCamera.classList.add('hidden');
       btnRecord.classList.remove('hidden');
+      document.getElementById('btn-flip-camera').classList.remove('hidden');
 
       // Start pose tracking loop
       if (analyzer && analyzer.pose) {
@@ -91,6 +101,17 @@
         alert('Could not access camera. Please make sure your device has a camera and try again.');
       }
     }
+  }
+
+  function updateCameraMirror() {
+    const mirror = usingFrontCamera ? 'scaleX(-1)' : 'scaleX(1)';
+    cameraFeed.style.transform = mirror;
+    poseCanvas.style.transform = mirror;
+  }
+
+  async function flipCamera() {
+    usingFrontCamera = !usingFrontCamera;
+    await startCamera();
   }
 
   function startPoseTracking() {
@@ -473,4 +494,5 @@
   btnAnalyze.addEventListener('click', runAnalysis);
   btnReset.addEventListener('click', resetApp);
   fileUpload.addEventListener('change', handleFileUpload);
+  document.getElementById('btn-flip-camera').addEventListener('click', flipCamera);
 })();
