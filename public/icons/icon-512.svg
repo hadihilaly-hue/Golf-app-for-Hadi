@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background circle -->
+  <circle cx="256" cy="256" r="256" fill="#1a472a"/>
+  <!-- Golf club shaft (angled line) -->
+  <line x1="160" y1="373" x2="307" y2="120" stroke="#d4a843" stroke-width="12" stroke-linecap="round"/>
+  <!-- Golf club head (wedge shape) -->
+  <path d="M303 128 L342 102 L347 140 Z" fill="#d4a843"/>
+  <!-- Golf ball -->
+  <circle cx="333" cy="320" r="58" fill="white"/>
+  <!-- Dimple pattern on ball -->
+  <circle cx="315" cy="301" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="333" cy="295" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="351" cy="301" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="307" cy="318" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="324" cy="314" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="342" cy="314" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="358" cy="318" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="315" cy="335" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="333" cy="331" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="351" cy="335" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="322" cy="351" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <circle cx="342" cy="349" r="6.5" fill="none" stroke="#ccc" stroke-width="2"/>
+  <!-- Swing arc -->
+  <path d="M120 400 Q107 240 307 120" fill="none" stroke="#d4a843" stroke-width="5" stroke-dasharray="10,10" opacity="0.6"/>
+</svg>
