@@ -37,6 +37,22 @@
         <div id="countdown" class="hidden"></div>
       </div>
 
+      <!-- Zoom Controls -->
+      <div id="zoom-controls" class="hidden">
+        <div class="zoom-buttons">
+          <button class="zoom-btn" data-zoom="0.5">0.5x</button>
+          <button class="zoom-btn active" data-zoom="1">1x</button>
+          <button class="zoom-btn" data-zoom="2">2x</button>
+          <button class="zoom-btn" data-zoom="3">3x</button>
+        </div>
+        <div class="zoom-slider-row">
+          <span class="zoom-icon">-</span>
+          <input type="range" id="zoom-slider" min="0.5" max="5" step="0.1" value="1">
+          <span class="zoom-icon">+</span>
+          <span id="zoom-label">1.0x</span>
+        </div>
+      </div>
+
       <!-- Controls -->
       <div id="controls">
         <button id="btn-start-camera" class="btn btn-primary">

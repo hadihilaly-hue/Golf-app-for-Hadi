@@ -96,6 +96,11 @@
   }
 
   // ===== Camera =====
+  let currentZoom = 1;
+  let minZoom = 1;
+  let maxZoom = 1;
+  let supportsZoom = false;
+
   async function startCamera() {
     try {
       // Stop existing stream if switching cameras
@@ -119,10 +124,12 @@
       cameraActive = true;
 
       updateCameraMirror();
+      detectZoomCapabilities();
 
       btnStartCamera.classList.add('hidden');
       btnRecord.classList.remove('hidden');
       document.getElementById('btn-flip-camera').classList.remove('hidden');
+      document.getElementById('zoom-controls').classList.remove('hidden');
 
       if (analyzer && analyzer.pose) {
         startPoseTracking();
@@ -140,10 +147,82 @@
     }
   }
 
+  function detectZoomCapabilities() {
+    const track = mediaStream.getVideoTracks()[0];
+    if (!track) return;
+
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    if (capabilities.zoom) {
+      supportsZoom = true;
+      minZoom = capabilities.zoom.min || 1;
+      maxZoom = capabilities.zoom.max || 1;
+      currentZoom = track.getSettings().zoom || 1;
+      updateZoomUI();
+    } else {
+      // No native zoom - use CSS transform zoom as fallback
+      supportsZoom = false;
+      minZoom = 0.5;
+      maxZoom = 3;
+      currentZoom = 1;
+      updateZoomUI();
+    }
+  }
+
+  function setZoom(level) {
+    currentZoom = Math.max(minZoom, Math.min(maxZoom, level));
+
+    if (supportsZoom) {
+      const track = mediaStream.getVideoTracks()[0];
+      if (track) {
+        track.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {
+          // Fallback to CSS zoom if constraint fails
+          applyCSSZoom();
+        });
+      }
+    } else {
+      applyCSSZoom();
+    }
+    updateZoomUI();
+  }
+
+  function applyCSSZoom() {
+    const mirror = usingFrontCamera ? -1 : 1;
+    cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+    poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+  }
+
+  function updateZoomUI() {
+    // Update active state on zoom buttons
+    document.querySelectorAll('.zoom-btn').forEach((btn) => {
+      const val = parseFloat(btn.dataset.zoom);
+      btn.classList.toggle('active', Math.abs(currentZoom - val) < 0.1);
+    });
+
+    // Update slider
+    const slider = document.getElementById('zoom-slider');
+    if (slider) {
+      slider.min = minZoom;
+      slider.max = Math.min(maxZoom, 5);
+      slider.step = 0.1;
+      slider.value = currentZoom;
+    }
+
+    // Update label
+    const label = document.getElementById('zoom-label');
+    if (label) {
+      label.textContent = `${currentZoom.toFixed(1)}x`;
+    }
+  }
+
   function updateCameraMirror() {
-    const mirror = usingFrontCamera ? 'scaleX(-1)' : 'scaleX(1)';
-    cameraFeed.style.transform = mirror;
-    poseCanvas.style.transform = mirror;
+    const mirror = usingFrontCamera ? -1 : 1;
+    if (!supportsZoom && currentZoom !== 1) {
+      cameraFeed.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+      poseCanvas.style.transform = `scaleX(${mirror}) scale(${currentZoom})`;
+    } else {
+      cameraFeed.style.transform = `scaleX(${mirror})`;
+      poseCanvas.style.transform = `scaleX(${mirror})`;
+    }
   }
 
   async function flipCamera() {
@@ -824,6 +903,16 @@
   document.getElementById('btn-flip-camera').addEventListener('click', flipCamera);
   document.getElementById('btn-save').addEventListener('click', saveSwing);
   document.getElementById('btn-share').addEventListener('click', shareSwing);
+
+  // Zoom controls
+  document.querySelectorAll('.zoom-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      setZoom(parseFloat(btn.dataset.zoom));
+    });
+  });
+  document.getElementById('zoom-slider').addEventListener('input', (e) => {
+    setZoom(parseFloat(e.target.value));
+  });
 
   // On load, check for shared swing URL
   checkSharedSwing();

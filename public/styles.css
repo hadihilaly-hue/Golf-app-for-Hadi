@@ -134,6 +134,85 @@ header h1 {
   100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
 }
 
+/* ===== Zoom Controls ===== */
+#zoom-controls {
+  margin-bottom: 12px;
+}
+
+.zoom-buttons {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.zoom-btn {
+  background: rgba(255, 255, 255, 0.2);
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  color: var(--white);
+  padding: 6px 14px;
+  border-radius: 16px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.zoom-btn.active {
+  background: var(--gold);
+  border-color: var(--gold);
+  color: var(--green-dark);
+}
+
+.zoom-btn:not(.active):hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+
+.zoom-slider-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 0 20px;
+}
+
+.zoom-icon {
+  color: var(--green-pale);
+  font-size: 1.2rem;
+  font-weight: 700;
+  width: 20px;
+  text-align: center;
+}
+
+#zoom-slider {
+  flex: 1;
+  max-width: 250px;
+  height: 4px;
+  -webkit-appearance: none;
+  appearance: none;
+  background: rgba(255, 255, 255, 0.3);
+  border-radius: 2px;
+  outline: none;
+}
+
+#zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--gold);
+  cursor: pointer;
+  border: 2px solid var(--white);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+}
+
+#zoom-label {
+  color: var(--gold-light);
+  font-weight: 700;
+  font-size: 0.9rem;
+  min-width: 36px;
+}
+
 /* ===== Buttons ===== */
 #controls {
   display: flex;
