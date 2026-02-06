@@ -1,5 +1,6 @@
 node_modules/
 uploads/*.webm
 uploads/*.mp4
+certs/
 .env
 .DS_Store
