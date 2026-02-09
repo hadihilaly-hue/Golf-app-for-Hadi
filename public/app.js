@@ -46,6 +46,10 @@
   const critiqueSection = document.getElementById('critique-section');
   const tipsSection = document.getElementById('tips-section');
 
+  // DOM - Welcome / Skill
+  const welcomeScreen = document.getElementById('welcome-screen');
+  const skillScreen = document.getElementById('skill-screen');
+
   // State
   let analyzer = null;
   let mediaStream = null;
@@ -57,12 +61,42 @@
   let usingFrontCamera = true;
   let lastAnalysisResults = null;
   let zoomPickerVisible = false;
+  let skillLevel = 'amateur'; // 'amateur', 'kornferry', 'pga'
 
   // Zoom state
   let currentZoom = 1;
   let minZoom = 1;
   let maxZoom = 1;
   let supportsZoom = false;
+
+  // ===== Welcome & Skill Level Flow =====
+  function startWelcomeFlow() {
+    // After 2 seconds, dissolve welcome into skill selection
+    setTimeout(() => {
+      welcomeScreen.classList.add('fade-out');
+      skillScreen.classList.remove('hidden');
+      setTimeout(() => {
+        welcomeScreen.classList.add('hidden');
+      }, 800);
+    }, 2000);
+  }
+
+  function selectSkillLevel(level) {
+    skillLevel = level;
+    // Dissolve skill screen into camera
+    skillScreen.classList.add('fade-out');
+    cameraScreen.classList.remove('hidden');
+    setTimeout(() => {
+      skillScreen.classList.add('hidden');
+    }, 600);
+  }
+
+  // Skill level button listeners
+  document.querySelectorAll('.skill-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      selectSkillLevel(btn.dataset.level);
+    });
+  });
 
   // ===== Screen Navigation =====
   function showScreen(screen) {
@@ -336,10 +370,16 @@
 
     let results;
     if (analyzer && analyzer.frames.length >= 10) {
-      results = analyzer.analyzeSwing();
+      results = analyzer.analyzeSwing(skillLevel);
     } else {
       results = generateFallbackAnalysis();
     }
+
+    // Scale score based on skill level
+    if (results.score !== null) {
+      results.score = scaleScoreForLevel(results.score, skillLevel);
+    }
+    results.skillLevel = skillLevel;
 
     lastAnalysisResults = results;
     loadingAnalysis.classList.add('hidden');
@@ -352,6 +392,35 @@
       document.getElementById('btn-save').disabled = false;
       document.getElementById('btn-save').textContent = 'Save Swing';
     }
+  }
+
+  // Scale raw score based on skill level
+  // Amateur: forgiving (raw score used roughly as-is)
+  // KornFerry: 100 amateur ~ 50 KF. Much harder to score well.
+  // PGA: 100 KF ~ 35 PGA. Elite-level expectations.
+  function scaleScoreForLevel(rawScore, level) {
+    let scaled;
+    if (level === 'amateur') {
+      // Generous: inflate slightly so beginners feel encouraged
+      scaled = Math.round(Math.min(100, rawScore * 1.1 + 5));
+    } else if (level === 'kornferry') {
+      // A 100 amateur = ~50 KF. Scale: score * 0.5
+      // But allow truly great swings to reach 70-80
+      scaled = Math.round(rawScore * 0.5);
+    } else if (level === 'pga') {
+      // A 100 KF = ~35 PGA. A 100 amateur = ~18 PGA.
+      // Only a perfect swing by Scottie/Rory standards hits 90+
+      scaled = Math.round(rawScore * 0.2);
+    } else {
+      scaled = rawScore;
+    }
+    return Math.min(100, Math.max(0, scaled));
+  }
+
+  function getSkillLabel(level) {
+    if (level === 'kornferry') return 'Korn Ferry';
+    if (level === 'pga') return 'PGA Tour';
+    return 'Amateur';
   }
 
   function generateFallbackAnalysis() {
@@ -451,7 +520,11 @@
     let html = '';
 
     if (score !== null) {
-      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${score}/100</span></div>`;
+      const label = getSkillLabel(skillLevel);
+      html += `<div style="text-align:center">`;
+      html += `<span class="score-badge">Swing Score: ${score}/100</span>`;
+      html += `<div style="color:rgba(255,255,255,0.5);font-size:0.85rem;margin-top:4px;">Scored on <strong style="color:var(--gold-light);">${label}</strong> standard</div>`;
+      html += `</div>`;
     }
 
     critique.forEach((section) => {
@@ -727,7 +800,11 @@
     let html = '';
 
     if (analysis.score !== null) {
-      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${analysis.score}/100</span></div>`;
+      const label = analysis.skillLevel ? getSkillLabel(analysis.skillLevel) : 'Amateur';
+      html += `<div style="text-align:center">`;
+      html += `<span class="score-badge">Swing Score: ${analysis.score}/100</span>`;
+      html += `<div style="color:rgba(255,255,255,0.5);font-size:0.85rem;margin-top:4px;">Scored on <strong style="color:var(--gold-light);">${label}</strong> standard</div>`;
+      html += `</div>`;
     }
 
     if (analysis.metrics) {
@@ -925,11 +1002,17 @@
   function checkSharedSwing() {
     const match = window.location.pathname.match(/^\/share\/(\w+)$/);
     if (match) {
+      // Skip welcome flow for shared links
+      welcomeScreen.classList.add('hidden');
+      skillScreen.classList.add('hidden');
       loadSharedSwing(match[1]);
       return true;
     }
     return false;
   }
 
-  checkSharedSwing();
+  // Start the app
+  if (!checkSharedSwing()) {
+    startWelcomeFlow();
+  }
 })();

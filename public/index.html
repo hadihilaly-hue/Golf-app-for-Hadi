@@ -18,8 +18,40 @@
 <body>
   <div id="app">
 
+    <!-- ===== Welcome Screen ===== -->
+    <div id="welcome-screen">
+      <div id="welcome-content">
+        <h1 id="welcome-title">Welcome to SwingAI</h1>
+      </div>
+    </div>
+
+    <!-- ===== Skill Level Screen ===== -->
+    <div id="skill-screen" class="hidden">
+      <div id="skill-content">
+        <h2 id="skill-question">What level player are you?</h2>
+        <p id="skill-subtitle">This adjusts how we analyze your swing</p>
+        <div id="skill-options">
+          <button class="skill-btn" data-level="amateur">
+            <span class="skill-icon">&#9971;</span>
+            <span class="skill-name">Amateur</span>
+            <span class="skill-desc">Weekend warrior, having fun</span>
+          </button>
+          <button class="skill-btn" data-level="kornferry">
+            <span class="skill-icon">&#127942;</span>
+            <span class="skill-name">Korn Ferry</span>
+            <span class="skill-desc">Competitive, chasing the tour</span>
+          </button>
+          <button class="skill-btn" data-level="pga">
+            <span class="skill-icon">&#127941;</span>
+            <span class="skill-name">PGA Tour</span>
+            <span class="skill-desc">Analyze me like Scottie Scheffler</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- ===== Camera Screen (full-screen like native camera) ===== -->
-    <div id="camera-screen">
+    <div id="camera-screen" class="hidden">
       <div id="video-container">
         <video id="camera-feed" autoplay playsinline></video>
         <canvas id="pose-canvas"></canvas>
