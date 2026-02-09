@@ -38,6 +38,37 @@
   let usingFrontCamera = true;
   let lastAnalysisResults = null; // Store for saving
   let currentPage = 'record';
+  let playerLevel = 'amateur'; // 'amateur', 'kornferry', or 'pga'
+
+  // ===== Welcome Screen Flow =====
+  (function initWelcomeScreen() {
+    const overlay = document.getElementById('welcome-overlay');
+    const welcomeTitle = document.getElementById('welcome-title');
+    const levelSelect = document.getElementById('level-select');
+    const appEl = document.getElementById('app');
+
+    // After 2 seconds, dissolve the title and show level select
+    setTimeout(() => {
+      welcomeTitle.classList.add('fade-out');
+      setTimeout(() => {
+        welcomeTitle.classList.add('hidden');
+        levelSelect.classList.remove('hidden');
+      }, 800);
+    }, 2000);
+
+    // Level button click handlers
+    document.querySelectorAll('.level-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        playerLevel = btn.dataset.level;
+        // Dissolve the entire overlay and reveal the app
+        overlay.classList.add('fade-out');
+        setTimeout(() => {
+          overlay.classList.add('hidden');
+          appEl.classList.remove('hidden');
+        }, 1000);
+      });
+    });
+  })();
 
   // ===== Page Navigation =====
   const recordPage = document.querySelector('main');
@@ -344,7 +375,7 @@
 
     let results;
     if (analyzer && analyzer.frames.length >= 10) {
-      results = analyzer.analyzeSwing();
+      results = analyzer.analyzeSwing(playerLevel);
     } else {
       results = generateFallbackAnalysis();
     }
@@ -428,7 +459,9 @@
     }
 
     if (results.score !== null) {
-      const scoreHTML = `<div style="text-align:center"><span class="score-badge">Swing Score: ${results.score}/100</span></div>`;
+      const levelLabels = { amateur: 'Amateur', kornferry: 'Korn Ferry', pga: 'PGA Tour' };
+      const levelLabel = levelLabels[playerLevel] || 'Amateur';
+      const scoreHTML = `<div style="text-align:center"><span class="score-badge">Swing Score: ${results.score}/100</span><br><span style="color:var(--gray);font-size:0.85rem;">Graded on <strong>${levelLabel}</strong> standard</span></div>`;
       document.getElementById('critique-content').innerHTML = scoreHTML;
     }
 
@@ -482,7 +515,9 @@
     let html = '';
 
     if (score !== null) {
-      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${score}/100</span></div>`;
+      const levelLabels = { amateur: 'Amateur', kornferry: 'Korn Ferry', pga: 'PGA Tour' };
+      const levelLabel = levelLabels[playerLevel] || 'Amateur';
+      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${score}/100</span><br><span style="color:var(--gray);font-size:0.85rem;">Graded on <strong>${levelLabel}</strong> standard</span></div>`;
     }
 
     critique.forEach((section) => {

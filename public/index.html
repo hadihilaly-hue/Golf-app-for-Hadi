@@ -16,7 +16,34 @@
   <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.3.1675466124/drawing_utils.js" crossorigin="anonymous"></script>
 </head>
 <body>
-  <div id="app">
+  <!-- Welcome Screen Overlay -->
+  <div id="welcome-overlay">
+    <div id="welcome-title" class="welcome-step">
+      <h1 class="welcome-heading">Welcome to SwingAI</h1>
+    </div>
+    <div id="level-select" class="welcome-step hidden">
+      <h2 class="level-heading">What level player are you?</h2>
+      <div class="level-buttons">
+        <button class="level-btn" data-level="amateur">
+          <span class="level-icon">⛳</span>
+          <span class="level-name">Amateur</span>
+          <span class="level-desc">Just here to have fun</span>
+        </button>
+        <button class="level-btn" data-level="kornferry">
+          <span class="level-icon">🏌️</span>
+          <span class="level-name">Korn Ferry</span>
+          <span class="level-desc">Competing to go pro</span>
+        </button>
+        <button class="level-btn" data-level="pga">
+          <span class="level-icon">🏆</span>
+          <span class="level-name">PGA Tour</span>
+          <span class="level-desc">Scottie & Rory level</span>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="app" class="hidden">
     <header>
       <h1>Golf Swing Analyzer</h1>
       <p class="subtitle">Film your swing. Get AI-powered feedback.</p>
