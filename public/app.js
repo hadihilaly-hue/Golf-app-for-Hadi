@@ -47,14 +47,14 @@
     const levelSelect = document.getElementById('level-select');
     const appEl = document.getElementById('app');
 
-    // After 3 seconds, dissolve the title and show level select
+    // After 5 seconds, dissolve the title and show level select
     setTimeout(() => {
       welcomeTitle.classList.add('fade-out');
       setTimeout(() => {
         welcomeTitle.classList.add('hidden');
         levelSelect.classList.remove('hidden');
       }, 800);
-    }, 3000);
+    }, 5000);
 
     // Level button click handlers
     document.querySelectorAll('.level-btn').forEach((btn) => {
