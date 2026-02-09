@@ -160,15 +160,15 @@ function generateCert() {
   }
 }
 
-// Start HTTP server
-app.listen(PORT, () => {
+// Start HTTP server - listen on 0.0.0.0 so phones on the same network can connect
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`Golf Swing Analyzer (HTTP) running at http://localhost:${PORT}`);
 });
 
 // Start HTTPS server (needed for camera access on iPhone over network)
 const certs = generateCert();
 if (certs) {
-  https.createServer(certs, app).listen(HTTPS_PORT, () => {
+  https.createServer(certs, app).listen(HTTPS_PORT, '0.0.0.0', () => {
     console.log(`Golf Swing Analyzer (HTTPS) running at https://localhost:${HTTPS_PORT}`);
     console.log('');
     console.log('=== FOR iPHONE ===');
