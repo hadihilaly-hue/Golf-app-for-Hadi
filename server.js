@@ -1,20 +1,21 @@
 const express = require('express');
 const path = require('path');
-const https = require('https');
 const fs = require('fs');
 const crypto = require('crypto');
-const { execSync } = require('child_process');
 const multer = require('multer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const HTTPS_PORT = process.env.HTTPS_PORT || 3443;
-const DATA_DIR = path.join(__dirname, 'data');
-const UPLOADS_DIR = path.join(__dirname, 'uploads');
+const IS_VERCEL = !!process.env.VERCEL;
+
+// Use /tmp on Vercel (only writable directory), normal dirs locally
+const DATA_DIR = IS_VERCEL ? '/tmp/data' : path.join(__dirname, 'data');
+const UPLOADS_DIR = IS_VERCEL ? '/tmp/uploads' : path.join(__dirname, 'uploads');
 
 // Ensure data directory exists
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR);
-if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR);
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+if (!fs.existsSync(UPLOADS_DIR)) fs.mkdirSync(UPLOADS_DIR, { recursive: true });
 
 // File upload config
 const storage = multer.diskStorage({
@@ -136,46 +137,55 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Generate self-signed certificate for HTTPS (required for camera access on iOS over network)
-function generateCert() {
-  const certDir = path.join(__dirname, 'certs');
-  const keyPath = path.join(certDir, 'key.pem');
-  const certPath = path.join(certDir, 'cert.pem');
+// Export for Vercel serverless
+module.exports = app;
 
-  if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-    return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+// Only start local servers when NOT running on Vercel
+if (!IS_VERCEL) {
+  const https = require('https');
+  const { execSync } = require('child_process');
+
+  // Generate self-signed certificate for HTTPS (required for camera access on iOS over network)
+  function generateCert() {
+    const certDir = path.join(__dirname, 'certs');
+    const keyPath = path.join(certDir, 'key.pem');
+    const certPath = path.join(certDir, 'cert.pem');
+
+    if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
+      return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+    }
+
+    try {
+      if (!fs.existsSync(certDir)) fs.mkdirSync(certDir);
+      execSync(
+        `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/CN=GolfSwingAnalyzer"`,
+        { stdio: 'pipe' }
+      );
+      console.log('Self-signed certificate generated.');
+      return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
+    } catch (err) {
+      console.warn('Could not generate HTTPS certificate:', err.message);
+      return null;
+    }
   }
 
-  try {
-    if (!fs.existsSync(certDir)) fs.mkdirSync(certDir);
-    execSync(
-      `openssl req -x509 -newkey rsa:2048 -keyout "${keyPath}" -out "${certPath}" -days 365 -nodes -subj "/CN=GolfSwingAnalyzer"`,
-      { stdio: 'pipe' }
-    );
-    console.log('Self-signed certificate generated.');
-    return { key: fs.readFileSync(keyPath), cert: fs.readFileSync(certPath) };
-  } catch (err) {
-    console.warn('Could not generate HTTPS certificate:', err.message);
-    return null;
-  }
-}
-
-// Start HTTP server - listen on 0.0.0.0 so phones on the same network can connect
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Golf Swing Analyzer (HTTP) running at http://localhost:${PORT}`);
-});
-
-// Start HTTPS server (needed for camera access on iPhone over network)
-const certs = generateCert();
-if (certs) {
-  https.createServer(certs, app).listen(HTTPS_PORT, '0.0.0.0', () => {
-    console.log(`Golf Swing Analyzer (HTTPS) running at https://localhost:${HTTPS_PORT}`);
-    console.log('');
-    console.log('=== FOR iPHONE ===');
-    console.log(`Open Safari on your iPhone and go to:`);
-    console.log(`  https://YOUR_MAC_IP:${HTTPS_PORT}`);
-    console.log('');
-    console.log('Safari will warn about the certificate - tap "Show Details" then "visit this website".');
-    console.log('This is safe - it\'s just because the certificate is self-signed.');
+  // Start HTTP server - listen on 0.0.0.0 so phones on the same network can connect
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Golf Swing Analyzer (HTTP) running at http://localhost:${PORT}`);
   });
+
+  // Start HTTPS server (needed for camera access on iPhone over network)
+  const certs = generateCert();
+  if (certs) {
+    https.createServer(certs, app).listen(HTTPS_PORT, '0.0.0.0', () => {
+      console.log(`Golf Swing Analyzer (HTTPS) running at https://localhost:${HTTPS_PORT}`);
+      console.log('');
+      console.log('=== FOR iPHONE ===');
+      console.log(`Open Safari on your iPhone and go to:`);
+      console.log(`  https://YOUR_MAC_IP:${HTTPS_PORT}`);
+      console.log('');
+      console.log('Safari will warn about the certificate - tap "Show Details" then "visit this website".');
+      console.log('This is safe - it\'s just because the certificate is self-signed.');
+    });
+  }
 }
