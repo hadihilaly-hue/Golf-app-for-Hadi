@@ -131,7 +131,7 @@ class SwingAnalyzer {
 
   // ===== Main Analysis =====
 
-  analyzeSwing() {
+  analyzeSwing(skillLevel) {
     if (this.frames.length < 10) {
       return {
         error: true,
@@ -149,8 +149,8 @@ class SwingAnalyzer {
     // Step 3: Detect which phases were present
     const phases = this._detectPhases(phaseFrames);
 
-    // Step 4: Generate critique and tips
-    const critique = this._generateCritique(metrics, phases);
+    // Step 4: Generate critique and tips (skill-level aware)
+    const critique = this._generateCritique(metrics, phases, skillLevel);
     const tips = this._generateTips(metrics, phases);
 
     // Step 5: Calculate score
@@ -432,39 +432,69 @@ class SwingAnalyzer {
     return metrics;
   }
 
-  _generateCritique(metrics, phases) {
+  _generateCritique(metrics, phases, skillLevel) {
     const sections = [];
     const goodPoints = [];
     const improvePoints = [];
     const criticalPoints = [];
 
+    const level = skillLevel || 'amateur';
+
     Object.entries(metrics).forEach(([key, m]) => {
       if (key.startsWith('_')) return; // skip internal metrics
-      if (m.rating === 'good') goodPoints.push(m.detail);
-      else if (m.rating === 'warning') improvePoints.push(m.detail);
-      else criticalPoints.push(m.detail);
+
+      if (level === 'amateur') {
+        // Forgiving: only flag needs-work as critical
+        if (m.rating === 'good') goodPoints.push(m.detail);
+        else if (m.rating === 'warning') improvePoints.push(m.detail);
+        else criticalPoints.push(m.detail);
+      } else if (level === 'kornferry') {
+        // Harsher: warnings become critical, good becomes "needs improvement"
+        if (m.rating === 'good') improvePoints.push(m.detail + ' — but at this level, push for perfection.');
+        else if (m.rating === 'warning') criticalPoints.push(m.detail + ' A Korn Ferry player needs this dialed in.');
+        else criticalPoints.push(m.detail + ' This would cost you strokes on tour.');
+      } else if (level === 'pga') {
+        // Extremely harsh: everything is scrutinized like a pro
+        if (m.rating === 'good') improvePoints.push(m.detail + ' — decent, but at PGA level even small flaws matter.');
+        else criticalPoints.push(m.detail + ' At PGA Tour level, this needs to be elite.');
+      }
     });
 
     // Phase-based feedback
     if (!phases.address) {
-      improvePoints.push(
-        'Could not clearly detect your address position. Stand still briefly before swinging.'
-      );
+      const msg = 'Could not clearly detect your address position. Stand still briefly before swinging.';
+      if (level === 'pga') criticalPoints.push(msg + ' A consistent setup is non-negotiable at this level.');
+      else improvePoints.push(msg);
     }
     if (!phases['follow-through']) {
-      improvePoints.push(
-        'Follow-through seems incomplete. Finish with your belt buckle facing the target.'
-      );
+      const msg = 'Follow-through seems incomplete. Finish with your belt buckle facing the target.';
+      if (level === 'pga' || level === 'kornferry') criticalPoints.push(msg + ' Incomplete finishes signal deceleration.');
+      else improvePoints.push(msg);
+    }
+
+    // Level-specific coaching
+    if (level === 'kornferry') {
+      if (criticalPoints.length === 0 && improvePoints.length <= 2) {
+        goodPoints.push('Solid fundamentals — you\'re competitive. Focus on consistency and course management.');
+      }
+    }
+    if (level === 'pga') {
+      if (criticalPoints.length === 0) {
+        goodPoints.push('Clean swing mechanics. At this level, the separation comes from pressure performance and shot shaping.');
+      }
+      if (criticalPoints.length > 0) {
+        criticalPoints.push('At PGA Tour level, every flaw gets exposed under pressure. These issues need daily range work.');
+      }
     }
 
     if (goodPoints.length > 0) {
-      sections.push({ type: 'good', title: 'What You\'re Doing Well', points: goodPoints });
+      sections.push({ type: 'good', title: level === 'amateur' ? 'What You\'re Doing Well' : 'Strengths', points: goodPoints });
     }
     if (improvePoints.length > 0) {
-      sections.push({ type: 'improve', title: 'Areas to Improve', points: improvePoints });
+      sections.push({ type: 'improve', title: level === 'pga' ? 'Needs Refinement' : 'Areas to Improve', points: improvePoints });
     }
     if (criticalPoints.length > 0) {
-      sections.push({ type: 'critical', title: 'Key Issues to Address', points: criticalPoints });
+      sections.push({ type: 'critical', title: level === 'pga' ? 'Tour-Level Issues' : 'Key Issues to Address', points: criticalPoints });
     }
 
     return sections;

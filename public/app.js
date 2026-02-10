@@ -1,31 +1,54 @@
 /**
  * Golf Swing Analyzer - Main Application
- * Handles camera, recording, UI interactions, saving, sharing, and library.
+ * Full-screen camera UI with record → analyze/retake → results flow.
  */
 
 (function () {
   'use strict';
 
-  // DOM Elements
+  // DOM - Camera
   const cameraFeed = document.getElementById('camera-feed');
   const poseCanvas = document.getElementById('pose-canvas');
   const canvasCtx = poseCanvas.getContext('2d');
   const recordingIndicator = document.getElementById('recording-indicator');
-  const countdown = document.getElementById('countdown');
+  const countdownEl = document.getElementById('countdown');
+
+  // DOM - Screens
+  const cameraScreen = document.getElementById('camera-screen');
+  const analysisScreen = document.getElementById('analysis-screen');
+  const libraryScreen = document.getElementById('library-screen');
+  const sharedView = document.getElementById('shared-view');
+
+  // DOM - Camera controls
+  const preCameraControls = document.getElementById('pre-camera-controls');
+  const recordControls = document.getElementById('record-controls');
+  const stopControls = document.getElementById('stop-controls');
+  const postRecordControls = document.getElementById('post-record-controls');
 
   const btnStartCamera = document.getElementById('btn-start-camera');
   const btnRecord = document.getElementById('btn-record');
   const btnStop = document.getElementById('btn-stop');
   const btnAnalyze = document.getElementById('btn-analyze');
-  const btnReset = document.getElementById('btn-reset');
-  const fileUpload = document.getElementById('file-upload');
+  const btnRetake = document.getElementById('btn-retake');
+  const btnFlipCamera = document.getElementById('btn-flip-camera');
+  const btnZoomToggle = document.getElementById('btn-zoom-toggle');
+  const zoomPicker = document.getElementById('zoom-picker');
+  const zoomBadge = document.getElementById('zoom-badge');
 
-  const analysisSection = document.getElementById('analysis-section');
+  const fileUpload = document.getElementById('file-upload');
+  const fileUploadAlt = document.getElementById('file-upload-alt');
+
+  // DOM - Analysis
+  const playbackVideo = document.getElementById('playback-video');
   const loadingAnalysis = document.getElementById('loading-analysis');
   const poseMetrics = document.getElementById('pose-metrics');
   const swingPhases = document.getElementById('swing-phases');
   const critiqueSection = document.getElementById('critique-section');
   const tipsSection = document.getElementById('tips-section');
+
+  // DOM - Welcome / Skill
+  const welcomeScreen = document.getElementById('welcome-screen');
+  const skillScreen = document.getElementById('skill-screen');
 
   // State
   let analyzer = null;
@@ -36,47 +59,52 @@
   let poseTrackingInterval = null;
   let cameraActive = false;
   let usingFrontCamera = true;
-  let lastAnalysisResults = null; // Store for saving
-  let currentPage = 'record';
+  let lastAnalysisResults = null;
+  let zoomPickerVisible = false;
+  let skillLevel = 'amateur'; // 'amateur', 'kornferry', 'pga'
 
-  // ===== Page Navigation =====
-  const recordPage = document.querySelector('main');
-  const libraryPage = document.getElementById('library-page');
-  const sharedView = document.getElementById('shared-view');
+  // Zoom state
+  let currentZoom = 1;
+  let minZoom = 1;
+  let maxZoom = 1;
+  let supportsZoom = false;
 
-  document.querySelectorAll('.nav-btn').forEach((btn) => {
+  // ===== Welcome & Skill Level Flow =====
+  function startWelcomeFlow() {
+    // After 2 seconds, dissolve welcome into skill selection
+    setTimeout(() => {
+      welcomeScreen.classList.add('fade-out');
+      skillScreen.classList.remove('hidden');
+      setTimeout(() => {
+        welcomeScreen.classList.add('hidden');
+      }, 800);
+    }, 2000);
+  }
+
+  function selectSkillLevel(level) {
+    skillLevel = level;
+    // Dissolve skill screen into camera
+    skillScreen.classList.add('fade-out');
+    cameraScreen.classList.remove('hidden');
+    setTimeout(() => {
+      skillScreen.classList.add('hidden');
+    }, 600);
+  }
+
+  // Skill level button listeners
+  document.querySelectorAll('.skill-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      const page = btn.dataset.page;
-      switchPage(page);
+      selectSkillLevel(btn.dataset.level);
     });
   });
 
-  function switchPage(page) {
-    currentPage = page;
-    document.querySelectorAll('.nav-btn').forEach((b) => b.classList.remove('active'));
-    document.querySelector(`.nav-btn[data-page="${page}"]`).classList.add('active');
-
-    // Hide all page content
-    document.getElementById('video-container').classList.toggle('hidden', page !== 'record');
-    document.getElementById('controls').classList.toggle('hidden', page !== 'record');
-    document.getElementById('upload-section').classList.toggle('hidden', page !== 'record');
-    if (page !== 'record') analysisSection.classList.add('hidden');
-    libraryPage.classList.toggle('hidden', page !== 'library');
+  // ===== Screen Navigation =====
+  function showScreen(screen) {
+    cameraScreen.classList.add('hidden');
+    analysisScreen.classList.add('hidden');
+    libraryScreen.classList.add('hidden');
     sharedView.classList.add('hidden');
-
-    if (page === 'library') {
-      loadLibrary();
-    }
-  }
-
-  // Check for shared swing URL
-  function checkSharedSwing() {
-    const match = window.location.pathname.match(/^\/share\/(\w+)$/);
-    if (match) {
-      loadSharedSwing(match[1]);
-      return true;
-    }
-    return false;
+    screen.classList.remove('hidden');
   }
 
   // ===== Initialize Analyzer =====
@@ -89,21 +117,14 @@
         poseCanvas.height = cameraFeed.videoHeight || 480;
         analyzer.drawPose(results, canvasCtx, poseCanvas.width, poseCanvas.height);
       };
-      console.log('Pose analyzer initialized');
     } catch (err) {
       console.warn('Pose detection could not initialize:', err.message);
     }
   }
 
   // ===== Camera =====
-  let currentZoom = 1;
-  let minZoom = 1;
-  let maxZoom = 1;
-  let supportsZoom = false;
-
   async function startCamera() {
     try {
-      // Stop existing stream if switching cameras
       if (mediaStream) {
         mediaStream.getTracks().forEach((t) => t.stop());
       }
@@ -126,17 +147,18 @@
       updateCameraMirror();
       detectZoomCapabilities();
 
-      btnStartCamera.classList.add('hidden');
-      btnRecord.classList.remove('hidden');
-      document.getElementById('btn-flip-camera').classList.remove('hidden');
-      document.getElementById('zoom-controls').classList.remove('hidden');
+      // Switch to record controls
+      preCameraControls.classList.add('hidden');
+      recordControls.classList.remove('hidden');
+      btnFlipCamera.classList.remove('hidden');
+      btnZoomToggle.classList.remove('hidden');
 
       if (analyzer && analyzer.pose) {
         startPoseTracking();
       }
     } catch (err) {
       console.error('Camera error:', err);
-      btnStartCamera.innerHTML = '<span class="icon">📷</span> Start Camera';
+      btnStartCamera.textContent = 'Start Camera';
       btnStartCamera.disabled = false;
 
       if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
@@ -157,15 +179,13 @@
       minZoom = capabilities.zoom.min || 1;
       maxZoom = capabilities.zoom.max || 1;
       currentZoom = track.getSettings().zoom || 1;
-      updateZoomUI();
     } else {
-      // No native zoom - use CSS transform zoom as fallback
       supportsZoom = false;
       minZoom = 0.5;
       maxZoom = 3;
       currentZoom = 1;
-      updateZoomUI();
     }
+    updateZoomUI();
   }
 
   function setZoom(level) {
@@ -175,7 +195,6 @@
       const track = mediaStream.getVideoTracks()[0];
       if (track) {
         track.applyConstraints({ advanced: [{ zoom: currentZoom }] }).catch(() => {
-          // Fallback to CSS zoom if constraint fails
           applyCSSZoom();
         });
       }
@@ -192,26 +211,14 @@
   }
 
   function updateZoomUI() {
-    // Update active state on zoom buttons
-    document.querySelectorAll('.zoom-btn').forEach((btn) => {
+    // Update badge
+    zoomBadge.textContent = `${currentZoom.toFixed(1)}x`;
+
+    // Update active state on zoom options
+    document.querySelectorAll('.zoom-opt').forEach((btn) => {
       const val = parseFloat(btn.dataset.zoom);
       btn.classList.toggle('active', Math.abs(currentZoom - val) < 0.1);
     });
-
-    // Update slider
-    const slider = document.getElementById('zoom-slider');
-    if (slider) {
-      slider.min = minZoom;
-      slider.max = Math.min(maxZoom, 5);
-      slider.step = 0.1;
-      slider.value = currentZoom;
-    }
-
-    // Update label
-    const label = document.getElementById('zoom-label');
-    if (label) {
-      label.textContent = `${currentZoom.toFixed(1)}x`;
-    }
   }
 
   function updateCameraMirror() {
@@ -228,6 +235,11 @@
   async function flipCamera() {
     usingFrontCamera = !usingFrontCamera;
     await startCamera();
+  }
+
+  function toggleZoomPicker() {
+    zoomPickerVisible = !zoomPickerVisible;
+    zoomPicker.classList.toggle('hidden', !zoomPickerVisible);
   }
 
   function startPoseTracking() {
@@ -252,6 +264,10 @@
 
   // ===== Recording =====
   async function startRecording() {
+    // Hide zoom picker if open
+    zoomPicker.classList.add('hidden');
+    zoomPickerVisible = false;
+
     await showCountdown();
 
     recordedChunks = [];
@@ -278,9 +294,10 @@
     if (analyzer) analyzer.startTracking();
 
     recordingIndicator.classList.remove('hidden');
-    btnRecord.classList.add('hidden');
-    btnStop.classList.remove('hidden');
-    document.getElementById('btn-flip-camera').classList.add('hidden');
+    recordControls.classList.add('hidden');
+    stopControls.classList.remove('hidden');
+    btnFlipCamera.classList.add('hidden');
+    btnZoomToggle.classList.add('hidden');
 
     setTimeout(() => {
       if (isRecording) stopRecording();
@@ -290,18 +307,18 @@
   function showCountdown() {
     return new Promise((resolve) => {
       let count = 3;
-      countdown.classList.remove('hidden');
-      countdown.textContent = count;
+      countdownEl.classList.remove('hidden');
+      countdownEl.textContent = count;
 
       const interval = setInterval(() => {
         count--;
         if (count > 0) {
-          countdown.textContent = count;
-          countdown.style.animation = 'none';
-          void countdown.offsetHeight;
-          countdown.style.animation = 'countdown-pop 0.5s ease-out';
+          countdownEl.textContent = count;
+          countdownEl.style.animation = 'none';
+          void countdownEl.offsetHeight;
+          countdownEl.style.animation = 'countdown-pop 0.5s ease-out';
         } else {
-          countdown.classList.add('hidden');
+          countdownEl.classList.add('hidden');
           clearInterval(interval);
           resolve();
         }
@@ -318,10 +335,10 @@
     if (analyzer) analyzer.stopTracking();
 
     recordingIndicator.classList.add('hidden');
-    btnStop.classList.add('hidden');
-    btnAnalyze.classList.remove('hidden');
-    btnReset.classList.remove('hidden');
-    document.getElementById('btn-flip-camera').classList.remove('hidden');
+    stopControls.classList.add('hidden');
+
+    // Show analyze / retake buttons
+    postRecordControls.classList.remove('hidden');
   }
 
   function onRecordingStopped() {
@@ -330,7 +347,18 @@
 
   // ===== Analysis =====
   async function runAnalysis() {
-    analysisSection.classList.remove('hidden');
+    // Switch to analysis screen
+    showScreen(analysisScreen);
+    window.scrollTo(0, 0);
+
+    // Set up playback video
+    if (recordedChunks.length > 0) {
+      const mimeType = recordedChunks[0].type || 'video/webm';
+      const blob = new Blob(recordedChunks, { type: mimeType });
+      playbackVideo.src = URL.createObjectURL(blob);
+    }
+
+    // Show loading
     loadingAnalysis.classList.remove('hidden');
     poseMetrics.classList.add('hidden');
     swingPhases.classList.add('hidden');
@@ -338,16 +366,20 @@
     tipsSection.classList.add('hidden');
     document.getElementById('save-share-section').classList.add('hidden');
 
-    btnAnalyze.classList.add('hidden');
-
     await new Promise((r) => setTimeout(r, 1500));
 
     let results;
     if (analyzer && analyzer.frames.length >= 10) {
-      results = analyzer.analyzeSwing();
+      results = analyzer.analyzeSwing(skillLevel);
     } else {
       results = generateFallbackAnalysis();
     }
+
+    // Scale score based on skill level
+    if (results.score !== null) {
+      results.score = scaleScoreForLevel(results.score, skillLevel);
+    }
+    results.skillLevel = skillLevel;
 
     lastAnalysisResults = results;
     loadingAnalysis.classList.add('hidden');
@@ -358,8 +390,37 @@
       document.getElementById('save-share-section').classList.remove('hidden');
       document.getElementById('save-status').classList.add('hidden');
       document.getElementById('btn-save').disabled = false;
-      document.getElementById('btn-save').innerHTML = '<span class="icon">💾</span> Save Swing';
+      document.getElementById('btn-save').textContent = 'Save Swing';
     }
+  }
+
+  // Scale raw score based on skill level
+  // Amateur: forgiving (raw score used roughly as-is)
+  // KornFerry: 100 amateur ~ 50 KF. Much harder to score well.
+  // PGA: 100 KF ~ 35 PGA. Elite-level expectations.
+  function scaleScoreForLevel(rawScore, level) {
+    let scaled;
+    if (level === 'amateur') {
+      // Generous: inflate slightly so beginners feel encouraged
+      scaled = Math.round(Math.min(100, rawScore * 1.1 + 5));
+    } else if (level === 'kornferry') {
+      // A 100 amateur = ~50 KF. Scale: score * 0.5
+      // But allow truly great swings to reach 70-80
+      scaled = Math.round(rawScore * 0.5);
+    } else if (level === 'pga') {
+      // A 100 KF = ~35 PGA. A 100 amateur = ~18 PGA.
+      // Only a perfect swing by Scottie/Rory standards hits 90+
+      scaled = Math.round(rawScore * 0.2);
+    } else {
+      scaled = rawScore;
+    }
+    return Math.min(100, Math.max(0, scaled));
+  }
+
+  function getSkillLabel(level) {
+    if (level === 'kornferry') return 'Korn Ferry';
+    if (level === 'pga') return 'PGA Tour';
+    return 'Amateur';
   }
 
   function generateFallbackAnalysis() {
@@ -395,26 +456,11 @@
         },
       ],
       tips: [
-        {
-          title: 'Setup & Alignment',
-          description: 'Ensure your feet are shoulder-width apart, knees slightly flexed, and spine tilted forward from the hips. Your arms should hang naturally below your shoulders.',
-        },
-        {
-          title: 'Backswing Checkpoint',
-          description: 'At the top of your backswing, your lead arm should be relatively straight, your back should face the target, and your weight should be loaded on your trail foot.',
-        },
-        {
-          title: 'Impact Position',
-          description: 'At impact, your hips should be open to the target, weight shifting to your lead foot, hands ahead of the ball, and your head behind the ball.',
-        },
-        {
-          title: 'Follow-Through',
-          description: 'A complete follow-through has your belt buckle facing the target, weight fully on your lead foot, and your trail foot up on its toe. Hold this finish for balance.',
-        },
-        {
-          title: 'Tempo Training',
-          description: 'Count "1" on the backswing and "2" on the downswing. A good swing tempo ratio is about 3:1. Use a metronome app set to 72 BPM for practice.',
-        },
+        { title: 'Setup & Alignment', description: 'Ensure your feet are shoulder-width apart, knees slightly flexed, and spine tilted forward from the hips. Your arms should hang naturally below your shoulders.' },
+        { title: 'Backswing Checkpoint', description: 'At the top of your backswing, your lead arm should be relatively straight, your back should face the target, and your weight should be loaded on your trail foot.' },
+        { title: 'Impact Position', description: 'At impact, your hips should be open to the target, weight shifting to your lead foot, hands ahead of the ball, and your head behind the ball.' },
+        { title: 'Follow-Through', description: 'A complete follow-through has your belt buckle facing the target, weight fully on your lead foot, and your trail foot up on its toe. Hold this finish for balance.' },
+        { title: 'Tempo Training', description: 'Count "1" on the backswing and "2" on the downswing. A good swing tempo ratio is about 3:1. Use a metronome app set to 72 BPM for practice.' },
       ],
     };
   }
@@ -422,14 +468,8 @@
   function displayResults(results) {
     if (results.error) {
       critiqueSection.classList.remove('hidden');
-      document.getElementById('critique-content').innerHTML =
-        `<p>${results.message}</p>`;
+      document.getElementById('critique-content').innerHTML = `<p>${results.message}</p>`;
       return;
-    }
-
-    if (results.score !== null) {
-      const scoreHTML = `<div style="text-align:center"><span class="score-badge">Swing Score: ${results.score}/100</span></div>`;
-      document.getElementById('critique-content').innerHTML = scoreHTML;
     }
 
     displayMetrics(results.metrics);
@@ -443,8 +483,6 @@
 
     displayTips(results.tips);
     tipsSection.classList.remove('hidden');
-
-    analysisSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function displayMetrics(metrics) {
@@ -482,7 +520,11 @@
     let html = '';
 
     if (score !== null) {
-      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${score}/100</span></div>`;
+      const label = getSkillLabel(skillLevel);
+      html += `<div style="text-align:center">`;
+      html += `<span class="score-badge">Swing Score: ${score}/100</span>`;
+      html += `<div style="color:rgba(255,255,255,0.5);font-size:0.85rem;margin-top:4px;">Scored on <strong style="color:var(--gold-light);">${label}</strong> standard</div>`;
+      html += `</div>`;
     }
 
     critique.forEach((section) => {
@@ -502,10 +544,7 @@
     const container = document.getElementById('tips-content');
     let html = '';
     tips.forEach((tip) => {
-      html += `<div class="tip-card">`;
-      html += `<h4>${tip.title}</h4>`;
-      html += `<p>${tip.description}</p>`;
-      html += `</div>`;
+      html += `<div class="tip-card"><h4>${tip.title}</h4><p>${tip.description}</p></div>`;
     });
     container.innerHTML = html;
   }
@@ -515,12 +554,11 @@
     const btnSave = document.getElementById('btn-save');
     const saveStatus = document.getElementById('save-status');
     btnSave.disabled = true;
-    btnSave.innerHTML = '<span class="icon">⏳</span> Saving...';
+    btnSave.textContent = 'Saving...';
 
     try {
       const formData = new FormData();
 
-      // Attach recorded video if available
       if (recordedChunks.length > 0) {
         const mimeType = recordedChunks[0].type || 'video/webm';
         const ext = mimeType.includes('mp4') ? '.mp4' : '.webm';
@@ -528,7 +566,6 @@
         formData.append('video', blob, `swing${ext}`);
       }
 
-      // Attach analysis data
       if (lastAnalysisResults) {
         formData.append('analysis', JSON.stringify(lastAnalysisResults));
       }
@@ -540,7 +577,7 @@
 
       const data = await response.json();
       if (data.success) {
-        btnSave.innerHTML = '<span class="icon">✅</span> Saved!';
+        btnSave.textContent = 'Saved!';
         saveStatus.textContent = 'Swing saved to your library!';
         saveStatus.className = '';
         saveStatus.classList.remove('hidden');
@@ -549,7 +586,7 @@
       }
     } catch (err) {
       console.error('Save error:', err);
-      btnSave.innerHTML = '<span class="icon">💾</span> Save Swing';
+      btnSave.textContent = 'Save Swing';
       btnSave.disabled = false;
       saveStatus.textContent = 'Could not save. Please try again.';
       saveStatus.className = 'error';
@@ -559,12 +596,10 @@
 
   // ===== Share Swing =====
   async function shareSwing() {
-    // First save if not saved yet
     const btnSave = document.getElementById('btn-save');
     let swingId = null;
 
-    if (!btnSave.disabled || !btnSave.innerHTML.includes('Saved')) {
-      // Need to save first
+    if (!btnSave.disabled || !btnSave.textContent.includes('Saved')) {
       try {
         const formData = new FormData();
         if (recordedChunks.length > 0) {
@@ -580,7 +615,7 @@
         const data = await response.json();
         if (data.success) {
           swingId = data.swing.id;
-          btnSave.innerHTML = '<span class="icon">✅</span> Saved!';
+          btnSave.textContent = 'Saved!';
           btnSave.disabled = true;
         }
       } catch (err) {
@@ -589,7 +624,6 @@
       }
     }
 
-    // Get the swing ID from the library if we didn't just save
     if (!swingId) {
       try {
         const response = await fetch('/api/swings');
@@ -607,18 +641,11 @@
       ? `Check out my golf swing! Score: ${lastAnalysisResults.score}/100`
       : 'Check out my golf swing analysis!';
 
-    // Use native share if available (iOS Safari)
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: 'My Golf Swing',
-          text: shareText,
-          url: shareUrl,
-        });
+        await navigator.share({ title: 'My Golf Swing', text: shareText, url: shareUrl });
       } catch (err) {
-        if (err.name !== 'AbortError') {
-          copyToClipboard(shareUrl);
-        }
+        if (err.name !== 'AbortError') copyToClipboard(shareUrl);
       }
     } else {
       copyToClipboard(shareUrl);
@@ -632,12 +659,16 @@
       saveStatus.className = '';
       saveStatus.classList.remove('hidden');
     }).catch(() => {
-      // Fallback for older browsers
       prompt('Copy this link to share your swing:', text);
     });
   }
 
   // ===== Library =====
+  function showLibrary() {
+    showScreen(libraryScreen);
+    loadLibrary();
+  }
+
   async function loadLibrary() {
     const listEl = document.getElementById('library-list');
     const emptyEl = document.getElementById('library-empty');
@@ -664,7 +695,7 @@
           : 'No score';
         const videoThumb = swing.videoFilename
           ? `<video src="/uploads/${swing.videoFilename}" muted preload="metadata"></video>`
-          : '<span class="no-video">🏌️</span>';
+          : '<span class="no-video">&#9971;</span>';
 
         return `
           <div class="swing-card" data-id="${swing.id}">
@@ -674,19 +705,18 @@
               <div class="swing-card-score">${score}</div>
             </div>
             <div class="swing-card-actions">
-              <button onclick="window._viewSwing('${swing.id}')" title="View">👁️</button>
-              <button onclick="window._shareSwingById('${swing.id}')" title="Share">📤</button>
-              <button onclick="window._deleteSwing('${swing.id}')" title="Delete">🗑️</button>
+              <button onclick="window._viewSwing('${swing.id}')" title="View">&#128065;</button>
+              <button onclick="window._shareSwingById('${swing.id}')" title="Share">&#128228;</button>
+              <button onclick="window._deleteSwing('${swing.id}')" title="Delete">&#128465;</button>
             </div>
           </div>
         `;
       }).join('');
     } catch (err) {
-      listEl.innerHTML = '<div style="text-align:center;color:var(--red);padding:20px;">Could not load swings.</div>';
+      listEl.innerHTML = '<div style="text-align:center;color:#ff6b6b;padding:20px;">Could not load swings.</div>';
     }
   }
 
-  // View a saved swing
   window._viewSwing = async function (id) {
     try {
       const response = await fetch(`/api/swings/${id}`);
@@ -695,9 +725,7 @@
 
       const swing = data.swing;
 
-      // Hide library, show shared view
-      libraryPage.classList.add('hidden');
-      sharedView.classList.remove('hidden');
+      showScreen(sharedView);
 
       const video = document.getElementById('shared-video');
       if (swing.videoFilename) {
@@ -711,14 +739,13 @@
       if (swing.analysis) {
         analysisEl.innerHTML = renderAnalysisHTML(swing.analysis);
       } else {
-        analysisEl.innerHTML = '<p>No analysis data available.</p>';
+        analysisEl.innerHTML = '<p style="color:var(--green-pale);">No analysis data available.</p>';
       }
     } catch (err) {
       alert('Could not load swing.');
     }
   };
 
-  // Share a saved swing by ID
   window._shareSwingById = function (id) {
     const shareUrl = `${window.location.origin}/share/${id}`;
     if (navigator.share) {
@@ -729,7 +756,6 @@
     }
   };
 
-  // Delete a swing
   window._deleteSwing = async function (id) {
     if (!confirm('Delete this swing?')) return;
     try {
@@ -740,19 +766,13 @@
     }
   };
 
-  // Load a shared swing from URL
   async function loadSharedSwing(id) {
-    // Hide record page elements
-    document.getElementById('video-container').classList.add('hidden');
-    document.getElementById('controls').classList.add('hidden');
-    document.getElementById('upload-section').classList.add('hidden');
-    sharedView.classList.remove('hidden');
-
+    showScreen(sharedView);
     try {
       const response = await fetch(`/api/swings/${id}`);
       const data = await response.json();
       if (!data.swing) {
-        document.getElementById('shared-analysis').innerHTML = '<p>Swing not found.</p>';
+        document.getElementById('shared-analysis').innerHTML = '<p style="color:var(--green-pale);">Swing not found.</p>';
         return;
       }
 
@@ -769,24 +789,26 @@
       if (swing.analysis) {
         analysisEl.innerHTML = renderAnalysisHTML(swing.analysis);
       } else {
-        analysisEl.innerHTML = '<p>No analysis data available.</p>';
+        analysisEl.innerHTML = '<p style="color:var(--green-pale);">No analysis data available.</p>';
       }
     } catch (err) {
-      document.getElementById('shared-analysis').innerHTML = '<p>Could not load shared swing.</p>';
+      document.getElementById('shared-analysis').innerHTML = '<p style="color:#ff6b6b;">Could not load shared swing.</p>';
     }
   }
 
-  // Render analysis as HTML (reused for library view and share view)
   function renderAnalysisHTML(analysis) {
     let html = '';
 
     if (analysis.score !== null) {
-      html += `<div style="text-align:center"><span class="score-badge">Swing Score: ${analysis.score}/100</span></div>`;
+      const label = analysis.skillLevel ? getSkillLabel(analysis.skillLevel) : 'Amateur';
+      html += `<div style="text-align:center">`;
+      html += `<span class="score-badge">Swing Score: ${analysis.score}/100</span>`;
+      html += `<div style="color:rgba(255,255,255,0.5);font-size:0.85rem;margin-top:4px;">Scored on <strong style="color:var(--gold-light);">${label}</strong> standard</div>`;
+      html += `</div>`;
     }
 
-    // Metrics
     if (analysis.metrics) {
-      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">Pose Tracking Data</h3>';
+      html += '<h3>Pose Tracking Data</h3>';
       html += '<div class="metrics-grid">';
       const labels = {
         shoulderRotation: 'Shoulder Rotation',
@@ -806,9 +828,8 @@
       html += '</div>';
     }
 
-    // Critique
     if (analysis.critique) {
-      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">AI Coach Feedback</h3>';
+      html += '<h3>AI Coach Feedback</h3>';
       analysis.critique.forEach((section) => {
         html += `<div class="critique-category ${section.type}"><h4>${section.title}</h4><ul>`;
         section.points.forEach((p) => { html += `<li>${p}</li>`; });
@@ -816,9 +837,8 @@
       });
     }
 
-    // Tips
     if (analysis.tips) {
-      html += '<h3 style="color:#2d6a4f;margin:16px 0 8px;border-bottom:2px solid #95d5b2;padding-bottom:4px;">Drills & Practice Tips</h3>';
+      html += '<h3>Drills & Practice Tips</h3>';
       analysis.tips.forEach((tip) => {
         html += `<div class="tip-card"><h4>${tip.title}</h4><p>${tip.description}</p></div>`;
       });
@@ -827,12 +847,13 @@
     return html;
   }
 
-  // ===== Reset =====
-  function resetApp() {
-    analysisSection.classList.add('hidden');
-    btnAnalyze.classList.add('hidden');
-    btnReset.classList.add('hidden');
-    btnRecord.classList.remove('hidden');
+  // ===== Reset / Retake =====
+  function retake() {
+    // Go back to camera with record controls
+    postRecordControls.classList.add('hidden');
+    recordControls.classList.remove('hidden');
+    btnFlipCamera.classList.remove('hidden');
+    btnZoomToggle.classList.remove('hidden');
 
     canvasCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
 
@@ -841,6 +862,44 @@
     }
     recordedChunks = [];
     lastAnalysisResults = null;
+  }
+
+  function backToCamera() {
+    showScreen(cameraScreen);
+
+    // Reset analysis UI
+    poseMetrics.classList.add('hidden');
+    swingPhases.classList.add('hidden');
+    critiqueSection.classList.add('hidden');
+    tipsSection.classList.add('hidden');
+    document.getElementById('save-share-section').classList.add('hidden');
+    loadingAnalysis.classList.add('hidden');
+
+    // Reset to record controls
+    postRecordControls.classList.add('hidden');
+    stopControls.classList.add('hidden');
+
+    if (cameraActive) {
+      recordControls.classList.remove('hidden');
+      btnFlipCamera.classList.remove('hidden');
+      btnZoomToggle.classList.remove('hidden');
+    } else {
+      preCameraControls.classList.remove('hidden');
+    }
+
+    canvasCtx.clearRect(0, 0, poseCanvas.width, poseCanvas.height);
+
+    if (analyzer) {
+      analyzer.frames = [];
+    }
+    recordedChunks = [];
+    lastAnalysisResults = null;
+
+    // Revoke playback URL
+    if (playbackVideo.src) {
+      URL.revokeObjectURL(playbackVideo.src);
+      playbackVideo.src = '';
+    }
   }
 
   // ===== File Upload =====
@@ -861,8 +920,14 @@
     cameraFeed.loop = false;
     cameraFeed.play();
 
-    btnStartCamera.classList.add('hidden');
-    btnRecord.classList.add('hidden');
+    preCameraControls.classList.add('hidden');
+    recordControls.classList.add('hidden');
+
+    // Store as recorded chunks for analysis
+    recordedChunks = [];
+    file.arrayBuffer().then((buffer) => {
+      recordedChunks = [new Blob([buffer], { type: file.type })];
+    });
 
     if (analyzer && analyzer.pose) {
       analyzer.frames = [];
@@ -872,24 +937,24 @@
       cameraFeed.addEventListener('ended', () => {
         analyzer.stopTracking();
         stopPoseTracking();
-        btnAnalyze.classList.remove('hidden');
-        btnReset.classList.remove('hidden');
+        postRecordControls.classList.remove('hidden');
       }, { once: true });
     } else {
       cameraFeed.addEventListener('ended', () => {
-        btnAnalyze.classList.remove('hidden');
-        btnReset.classList.remove('hidden');
+        postRecordControls.classList.remove('hidden');
       }, { once: true });
       setTimeout(() => {
-        btnAnalyze.classList.remove('hidden');
-        btnReset.classList.remove('hidden');
+        postRecordControls.classList.remove('hidden');
       }, 5000);
     }
+
+    // Reset the input so the same file can be selected again
+    event.target.value = '';
   }
 
   // ===== Event Listeners =====
   btnStartCamera.addEventListener('click', async () => {
-    btnStartCamera.innerHTML = '<span class="icon">⏳</span> Starting...';
+    btnStartCamera.textContent = 'Starting...';
     btnStartCamera.disabled = true;
     await initAnalyzer();
     await startCamera();
@@ -898,22 +963,56 @@
   btnRecord.addEventListener('click', startRecording);
   btnStop.addEventListener('click', stopRecording);
   btnAnalyze.addEventListener('click', runAnalysis);
-  btnReset.addEventListener('click', resetApp);
-  fileUpload.addEventListener('change', handleFileUpload);
-  document.getElementById('btn-flip-camera').addEventListener('click', flipCamera);
+  btnRetake.addEventListener('click', retake);
+  btnFlipCamera.addEventListener('click', flipCamera);
+  btnZoomToggle.addEventListener('click', toggleZoomPicker);
+
   document.getElementById('btn-save').addEventListener('click', saveSwing);
   document.getElementById('btn-share').addEventListener('click', shareSwing);
+  document.getElementById('btn-back-to-camera').addEventListener('click', backToCamera);
+  document.getElementById('btn-library-shortcut').addEventListener('click', showLibrary);
+  document.getElementById('btn-library-back').addEventListener('click', () => {
+    showScreen(cameraScreen);
+  });
 
-  // Zoom controls
-  document.querySelectorAll('.zoom-btn').forEach((btn) => {
+  fileUpload.addEventListener('change', handleFileUpload);
+  fileUploadAlt.addEventListener('change', handleFileUpload);
+
+  // Zoom options
+  document.querySelectorAll('.zoom-opt').forEach((btn) => {
     btn.addEventListener('click', () => {
       setZoom(parseFloat(btn.dataset.zoom));
+      // Auto-hide picker after selection
+      setTimeout(() => {
+        zoomPicker.classList.add('hidden');
+        zoomPickerVisible = false;
+      }, 300);
     });
   });
-  document.getElementById('zoom-slider').addEventListener('input', (e) => {
-    setZoom(parseFloat(e.target.value));
+
+  // Close zoom picker when tapping elsewhere
+  document.addEventListener('click', (e) => {
+    if (zoomPickerVisible && !zoomPicker.contains(e.target) && e.target !== btnZoomToggle && !btnZoomToggle.contains(e.target)) {
+      zoomPicker.classList.add('hidden');
+      zoomPickerVisible = false;
+    }
   });
 
-  // On load, check for shared swing URL
-  checkSharedSwing();
+  // Check for shared swing URL on load
+  function checkSharedSwing() {
+    const match = window.location.pathname.match(/^\/share\/(\w+)$/);
+    if (match) {
+      // Skip welcome flow for shared links
+      welcomeScreen.classList.add('hidden');
+      skillScreen.classList.add('hidden');
+      loadSharedSwing(match[1]);
+      return true;
+    }
+    return false;
+  }
+
+  // Start the app
+  if (!checkSharedSwing()) {
+    startWelcomeFlow();
+  }
 })();

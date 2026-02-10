@@ -2,11 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="SwingAI">
-  <meta name="theme-color" content="#1a472a">
+  <meta name="theme-color" content="#000000">
   <link rel="manifest" href="/manifest.json">
   <link rel="apple-touch-icon" href="/icons/icon-192.svg">
   <title>Golf Swing Analyzer</title>
@@ -17,17 +17,41 @@
 </head>
 <body>
   <div id="app">
-    <header>
-      <h1>Golf Swing Analyzer</h1>
-      <p class="subtitle">Film your swing. Get AI-powered feedback.</p>
-      <nav id="nav-bar">
-        <button class="nav-btn active" data-page="record">Record</button>
-        <button class="nav-btn" data-page="library">My Swings</button>
-      </nav>
-    </header>
 
-    <main>
-      <!-- Camera / Video Section -->
+    <!-- ===== Welcome Screen ===== -->
+    <div id="welcome-screen">
+      <div id="welcome-content">
+        <h1 id="welcome-title">Welcome to SwingAI</h1>
+      </div>
+    </div>
+
+    <!-- ===== Skill Level Screen ===== -->
+    <div id="skill-screen" class="hidden">
+      <div id="skill-content">
+        <h2 id="skill-question">What level player are you?</h2>
+        <p id="skill-subtitle">This adjusts how we analyze your swing</p>
+        <div id="skill-options">
+          <button class="skill-btn" data-level="amateur">
+            <span class="skill-icon">&#9971;</span>
+            <span class="skill-name">Amateur</span>
+            <span class="skill-desc">Weekend warrior, having fun</span>
+          </button>
+          <button class="skill-btn" data-level="kornferry">
+            <span class="skill-icon">&#127942;</span>
+            <span class="skill-name">Korn Ferry</span>
+            <span class="skill-desc">Competitive, chasing the tour</span>
+          </button>
+          <button class="skill-btn" data-level="pga">
+            <span class="skill-icon">&#127941;</span>
+            <span class="skill-name">PGA Tour</span>
+            <span class="skill-desc">Analyze me like Scottie Scheffler</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ===== Camera Screen (full-screen like native camera) ===== -->
+    <div id="camera-screen" class="hidden">
       <div id="video-container">
         <video id="camera-feed" autoplay playsinline></video>
         <canvas id="pose-canvas"></canvas>
@@ -37,62 +61,81 @@
         <div id="countdown" class="hidden"></div>
       </div>
 
-      <!-- Zoom Controls -->
-      <div id="zoom-controls" class="hidden">
-        <div class="zoom-buttons">
-          <button class="zoom-btn" data-zoom="0.5">0.5x</button>
-          <button class="zoom-btn active" data-zoom="1">1x</button>
-          <button class="zoom-btn" data-zoom="2">2x</button>
-          <button class="zoom-btn" data-zoom="3">3x</button>
+      <!-- Top bar overlay -->
+      <div id="camera-top-bar">
+        <button id="btn-flip-camera" class="camera-icon-btn hidden" title="Flip Camera">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5"/><path d="M8 21H3v-5"/><path d="M21 3l-7 7"/><path d="M3 21l7-7"/></svg>
+        </button>
+        <button id="btn-zoom-toggle" class="camera-icon-btn hidden" title="Zoom">
+          <span id="zoom-badge">1x</span>
+        </button>
+      </div>
+
+      <!-- Zoom picker (shown when zoom badge tapped) -->
+      <div id="zoom-picker" class="hidden">
+        <div class="zoom-dial">
+          <button class="zoom-opt" data-zoom="0.5">0.5</button>
+          <button class="zoom-opt active" data-zoom="1">1x</button>
+          <button class="zoom-opt" data-zoom="2">2x</button>
+          <button class="zoom-opt" data-zoom="3">3x</button>
         </div>
-        <div class="zoom-slider-row">
-          <span class="zoom-icon">-</span>
-          <input type="range" id="zoom-slider" min="0.5" max="5" step="0.1" value="1">
-          <span class="zoom-icon">+</span>
-          <span id="zoom-label">1.0x</span>
+      </div>
+
+      <!-- Bottom controls overlay -->
+      <div id="camera-bottom-bar">
+        <!-- Before camera starts -->
+        <div id="pre-camera-controls">
+          <button id="btn-start-camera" class="start-camera-btn">
+            Start Camera
+          </button>
+          <label for="file-upload" class="upload-label">or upload a video</label>
+          <input type="file" id="file-upload" accept="video/*" hidden>
+        </div>
+
+        <!-- Record button -->
+        <div id="record-controls" class="hidden">
+          <div class="record-btn-row">
+            <label for="file-upload-alt" class="side-btn" title="Upload">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M19 7v2.99s-1.99.01-2 0V7h-3s.01-1.99 0-2h3V2h2v3h3v2h-3zm-3 4V8h-3V5H5c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-8h-3zM5 19l3-4 2 3 3-4 4 5H5z"/></svg>
+            </label>
+            <input type="file" id="file-upload-alt" accept="video/*" hidden>
+            <button id="btn-record" class="record-btn" title="Record">
+              <div class="record-btn-inner"></div>
+            </button>
+            <button id="btn-library-shortcut" class="side-btn" title="My Swings">
+              <svg width="24" height="24" viewBox="0 0 24 24" fill="white"><path d="M4 6H2v14c0 1.1.9 2 2 2h14v-2H4V6zm16-4H8c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H8V4h12v12z"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <!-- Stop recording button -->
+        <div id="stop-controls" class="hidden">
+          <button id="btn-stop" class="record-btn recording" title="Stop">
+            <div class="stop-btn-inner"></div>
+          </button>
+        </div>
+
+        <!-- After recording: Analyze / Retake -->
+        <div id="post-record-controls" class="hidden">
+          <button id="btn-retake" class="post-btn retake-btn">Retake</button>
+          <button id="btn-analyze" class="post-btn analyze-btn">Analyze</button>
         </div>
       </div>
+    </div>
 
-      <!-- Controls -->
-      <div id="controls">
-        <button id="btn-start-camera" class="btn btn-primary">
-          <span class="icon">📷</span> Start Camera
-        </button>
-        <button id="btn-flip-camera" class="btn btn-secondary hidden">
-          <span class="icon">🔁</span> Flip Camera
-        </button>
-        <button id="btn-record" class="btn btn-record hidden">
-          <span class="icon">🔴</span> Record Swing
-        </button>
-        <button id="btn-stop" class="btn btn-stop hidden">
-          <span class="icon">⏹️</span> Stop Recording
-        </button>
-        <button id="btn-analyze" class="btn btn-analyze hidden">
-          <span class="icon">🔍</span> Analyze My Swing
-        </button>
-        <button id="btn-reset" class="btn btn-secondary hidden">
-          <span class="icon">🔄</span> Record Again
-        </button>
+    <!-- ===== Analysis Screen (scrollable, below camera) ===== -->
+    <div id="analysis-screen" class="hidden">
+      <!-- Playback of recorded video -->
+      <div id="playback-container">
+        <video id="playback-video" controls playsinline></video>
       </div>
 
-      <!-- Upload alternative -->
-      <div id="upload-section">
-        <p class="divider-text">— or upload a video —</p>
-        <label for="file-upload" class="btn btn-secondary upload-btn">
-          <span class="icon">📁</span> Upload Swing Video
-        </label>
-        <input type="file" id="file-upload" accept="video/*" hidden>
-      </div>
-
-      <!-- Analysis Results -->
-      <div id="analysis-section" class="hidden">
-        <h2>Swing Analysis</h2>
+      <div id="analysis-section">
         <div id="loading-analysis" class="hidden">
           <div class="spinner"></div>
           <p>Analyzing your swing...</p>
         </div>
 
-        <!-- Pose tracking metrics -->
         <div id="pose-metrics" class="hidden">
           <h3>Pose Tracking Data</h3>
           <div class="metrics-grid">
@@ -123,7 +166,6 @@
           </div>
         </div>
 
-        <!-- Swing phases -->
         <div id="swing-phases" class="hidden">
           <h3>Swing Phases Detected</h3>
           <div class="phases-timeline">
@@ -159,54 +201,56 @@
           </div>
         </div>
 
-        <!-- AI Critique -->
         <div id="critique-section" class="hidden">
           <h3>AI Coach Feedback</h3>
           <div id="critique-content"></div>
         </div>
 
-        <!-- Tips -->
         <div id="tips-section" class="hidden">
           <h3>Drills & Practice Tips</h3>
           <div id="tips-content"></div>
         </div>
 
-        <!-- Save & Share buttons -->
+        <!-- Save & Share at the bottom -->
         <div id="save-share-section" class="hidden">
           <div id="save-share-buttons">
-            <button id="btn-save" class="btn btn-primary">
-              <span class="icon">💾</span> Save Swing
+            <button id="btn-save" class="btn btn-save-full">
+              Save Swing
             </button>
-            <button id="btn-share" class="btn btn-analyze">
-              <span class="icon">📤</span> Share
+            <button id="btn-share" class="btn btn-share-full">
+              Share
             </button>
           </div>
           <p id="save-status" class="hidden"></p>
         </div>
-      </div>
 
-      <!-- Library Page -->
-      <div id="library-page" class="hidden">
-        <h2 class="library-title">My Saved Swings</h2>
-        <div id="library-empty" class="hidden">
-          <p>No saved swings yet. Record and analyze a swing, then tap Save!</p>
-        </div>
-        <div id="library-list"></div>
+        <button id="btn-back-to-camera" class="btn btn-back">Record Another Swing</button>
       </div>
+    </div>
 
-      <!-- Shared Swing View -->
-      <div id="shared-view" class="hidden">
-        <h2>Shared Swing</h2>
-        <div id="shared-video-container">
-          <video id="shared-video" controls playsinline></video>
-        </div>
-        <div id="shared-analysis"></div>
+    <!-- ===== Library Screen ===== -->
+    <div id="library-screen" class="hidden">
+      <div id="library-header">
+        <button id="btn-library-back" class="back-arrow-btn">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5"/><path d="M12 19l-7-7 7-7"/></svg>
+        </button>
+        <h2>My Swings</h2>
       </div>
-    </main>
+      <div id="library-empty" class="hidden">
+        <p>No saved swings yet. Record and analyze a swing, then tap Save!</p>
+      </div>
+      <div id="library-list"></div>
+    </div>
 
-    <footer>
-      <p>Golf Swing Analyzer &mdash; Powered by AI pose estimation</p>
-    </footer>
+    <!-- ===== Shared Swing View ===== -->
+    <div id="shared-view" class="hidden">
+      <h2>Shared Swing</h2>
+      <div id="shared-video-container">
+        <video id="shared-video" controls playsinline></video>
+      </div>
+      <div id="shared-analysis"></div>
+    </div>
+
   </div>
 
   <script src="swing-analyzer.js"></script>
