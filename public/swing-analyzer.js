@@ -131,7 +131,9 @@ class SwingAnalyzer {
 
   // ===== Main Analysis =====
 
-  analyzeSwing() {
+  analyzeSwing(level) {
+    this._level = level || 'amateur';
+
     if (this.frames.length < 10) {
       return {
         error: true,
@@ -149,14 +151,14 @@ class SwingAnalyzer {
     // Step 3: Detect which phases were present
     const phases = this._detectPhases(phaseFrames);
 
-    // Step 4: Generate critique and tips
+    // Step 4: Generate critique and tips based on level
     const critique = this._generateCritique(metrics, phases);
     const tips = this._generateTips(metrics, phases);
 
-    // Step 5: Calculate score
+    // Step 5: Calculate score adjusted for skill level
     const score = this._calculateScore(metrics, phases);
 
-    return { phases, metrics, critique, tips, score, frameCount: this.frames.length };
+    return { phases, metrics, critique, tips, score, level: this._level, frameCount: this.frames.length };
   }
 
   _findPhaseFrames() {
@@ -437,34 +439,57 @@ class SwingAnalyzer {
     const goodPoints = [];
     const improvePoints = [];
     const criticalPoints = [];
+    const level = this._level || 'amateur';
 
     Object.entries(metrics).forEach(([key, m]) => {
       if (key.startsWith('_')) return; // skip internal metrics
-      if (m.rating === 'good') goodPoints.push(m.detail);
-      else if (m.rating === 'warning') improvePoints.push(m.detail);
-      else criticalPoints.push(m.detail);
+
+      if (level === 'amateur') {
+        // Friendly, encouraging feedback
+        if (m.rating === 'good') goodPoints.push(m.detail);
+        else if (m.rating === 'warning') improvePoints.push(m.detail);
+        else criticalPoints.push(m.detail);
+      } else if (level === 'kornferry') {
+        // Stricter: warnings become critical, good gets less praise
+        if (m.rating === 'good') improvePoints.push(m.detail + ' — but tighten this up to compete at the next level.');
+        else if (m.rating === 'warning') criticalPoints.push(m.detail + ' This won\'t cut it on the Korn Ferry Tour.');
+        else criticalPoints.push(m.detail + ' This is a serious flaw that needs immediate work.');
+      } else if (level === 'pga') {
+        // Elite: everything is scrutinized like Scottie Scheffler
+        if (m.rating === 'good') improvePoints.push(m.detail + ' — acceptable, but at the PGA level every degree matters. Scottie would be tighter here.');
+        else if (m.rating === 'warning') criticalPoints.push(m.detail + ' At PGA Tour level this is a major weakness. Rory and Scottie don\'t have this issue.');
+        else criticalPoints.push(m.detail + ' This would not survive a single round on the PGA Tour. Fundamental rebuild needed.');
+      }
     });
 
-    // Phase-based feedback
+    // Phase-based feedback - escalate severity by level
     if (!phases.address) {
-      improvePoints.push(
-        'Could not clearly detect your address position. Stand still briefly before swinging.'
-      );
+      const msg = level === 'pga'
+        ? 'No clear address position detected. Tour pros have a rock-solid pre-shot routine — this is non-negotiable.'
+        : level === 'kornferry'
+        ? 'Address position unclear. At this level, you need a consistent, repeatable setup.'
+        : 'Could not clearly detect your address position. Stand still briefly before swinging.';
+      (level === 'amateur' ? improvePoints : criticalPoints).push(msg);
     }
     if (!phases['follow-through']) {
-      improvePoints.push(
-        'Follow-through seems incomplete. Finish with your belt buckle facing the target.'
-      );
+      const msg = level === 'pga'
+        ? 'Incomplete follow-through. Watch Rory — his finish is balanced and held every single time.'
+        : level === 'kornferry'
+        ? 'Follow-through is incomplete. You need a full, balanced finish to compete at this level.'
+        : 'Follow-through seems incomplete. Finish with your belt buckle facing the target.';
+      (level === 'amateur' ? improvePoints : criticalPoints).push(msg);
     }
 
     if (goodPoints.length > 0) {
       sections.push({ type: 'good', title: 'What You\'re Doing Well', points: goodPoints });
     }
     if (improvePoints.length > 0) {
-      sections.push({ type: 'improve', title: 'Areas to Improve', points: improvePoints });
+      const improveTitle = level === 'pga' ? 'Needs Tour-Level Refinement' : level === 'kornferry' ? 'Must Improve to Compete' : 'Areas to Improve';
+      sections.push({ type: 'improve', title: improveTitle, points: improvePoints });
     }
     if (criticalPoints.length > 0) {
-      sections.push({ type: 'critical', title: 'Key Issues to Address', points: criticalPoints });
+      const critTitle = level === 'pga' ? 'Not PGA Tour Ready' : level === 'kornferry' ? 'Serious Issues' : 'Key Issues to Address';
+      sections.push({ type: 'critical', title: critTitle, points: criticalPoints });
     }
 
     return sections;
@@ -472,59 +497,88 @@ class SwingAnalyzer {
 
   _generateTips(metrics, phases) {
     const tips = [];
+    const level = this._level || 'amateur';
 
-    if (metrics.shoulderRotation.rating !== 'good') {
+    // For PGA and KornFerry, even "good" metrics get advanced tips
+    const needsTip = (metric) => {
+      if (level === 'pga') return true; // always give tips at PGA level
+      if (level === 'kornferry') return metric.rating !== 'good';
+      return metric.rating !== 'good'; // amateur only if not good
+    };
+
+    if (needsTip(metrics.shoulderRotation)) {
       tips.push({
-        title: 'Shoulder Turn Drill',
-        description:
-          'Hold a club across your shoulders and practice turning back until the club points at the ball. Feel the stretch in your back muscles.',
+        title: level === 'pga' ? 'Elite Shoulder Coil' : 'Shoulder Turn Drill',
+        description: level === 'pga'
+          ? 'Film from down the line and measure your shoulder turn to 90°+ relative to your spine. Scheffler consistently hits 95°. Use alignment sticks to verify.'
+          : level === 'kornferry'
+          ? 'You need at least 85° of shoulder turn. Use a launch monitor to correlate turn with clubhead speed. Every degree matters for distance.'
+          : 'Hold a club across your shoulders and practice turning back until the club points at the ball. Feel the stretch in your back muscles.',
       });
     }
 
-    if (metrics.hipRotation.rating !== 'good') {
+    if (needsTip(metrics.hipRotation)) {
       tips.push({
-        title: 'Hip Engagement Drill',
-        description:
-          'Place a chair against your lead hip at address. On the backswing, your trail hip should turn away. On the downswing, bump the chair with your lead hip.',
+        title: level === 'pga' ? 'Tour-Level Hip Separation' : 'Hip Engagement Drill',
+        description: level === 'pga'
+          ? 'Focus on X-factor stretch — the differential between hip and shoulder turn at transition. Tour average is 45°+. Use 3D motion capture if available.'
+          : level === 'kornferry'
+          ? 'Your hip rotation needs to create proper separation from your shoulders. Work with a swing coach on sequencing drills.'
+          : 'Place a chair against your lead hip at address. On the backswing, your trail hip should turn away. On the downswing, bump the chair with your lead hip.',
       });
     }
 
-    if (metrics.headMovement.rating !== 'good') {
+    if (needsTip(metrics.headMovement)) {
       tips.push({
-        title: 'Head Stability Drill',
-        description:
-          'Have a friend hold a club gently on top of your head while you make slow swings. Your head should stay in contact throughout.',
+        title: level === 'pga' ? 'Center of Gravity Control' : 'Head Stability Drill',
+        description: level === 'pga'
+          ? 'At the PGA level, head movement is about maintaining your center of pressure. Use force plates to track your CoP throughout the swing.'
+          : level === 'kornferry'
+          ? 'Head movement directly affects strike consistency. Use high-speed video to track your head position frame by frame through impact.'
+          : 'Have a friend hold a club gently on top of your head while you make slow swings. Your head should stay in contact throughout.',
       });
     }
 
-    if (metrics.weightTransfer.rating !== 'good') {
+    if (needsTip(metrics.weightTransfer)) {
       tips.push({
-        title: 'Step Drill for Weight Transfer',
-        description:
-          'On the downswing, step your lead foot toward the target before striking. This exaggerates proper weight transfer.',
+        title: level === 'pga' ? 'Ground Reaction Force Optimization' : 'Step Drill for Weight Transfer',
+        description: level === 'pga'
+          ? 'Tour players generate 150%+ body weight in vertical ground force at impact. Train with a BodiTrak mat to optimize your pressure trace timing.'
+          : level === 'kornferry'
+          ? 'Your weight transfer timing needs to be earlier in the downswing. Work on getting 80%+ pressure on your lead foot at impact.'
+          : 'On the downswing, step your lead foot toward the target before striking. This exaggerates proper weight transfer.',
       });
     }
 
-    if (metrics.spineAngle.rating !== 'good') {
+    if (needsTip(metrics.spineAngle)) {
       tips.push({
-        title: 'Spine Angle Practice',
-        description:
-          'Stand with your back against a wall, bend forward from your hips until you feel athletic. Your rear stays on the wall.',
+        title: level === 'pga' ? 'Spine Angle Precision' : 'Spine Angle Practice',
+        description: level === 'pga'
+          ? 'Maintain spine angle within 2° from address through impact. Use 3D analysis to verify — any early extension will cost you strokes under pressure.'
+          : level === 'kornferry'
+          ? 'Spine angle maintenance separates competitors from qualifiers. Film yourself and overlay address vs impact to check for drift.'
+          : 'Stand with your back against a wall, bend forward from your hips until you feel athletic. Your rear stays on the wall.',
       });
     }
 
-    if (metrics.kneeFlex.rating !== 'good') {
+    if (needsTip(metrics.kneeFlex)) {
       tips.push({
-        title: 'Athletic Stance Drill',
-        description:
-          'Stand with feet shoulder-width apart, flex your knees slightly as if sitting on a bar stool. Let arms hang naturally.',
+        title: level === 'pga' ? 'Lower Body Stability' : 'Athletic Stance Drill',
+        description: level === 'pga'
+          ? 'Your knee flex must be consistent and support rotational power. Work with a trainer on lower body stability through the hitting zone.'
+          : level === 'kornferry'
+          ? 'Inconsistent knee flex leads to inconsistent contact. Practice with a mirror to groove the same athletic position every time.'
+          : 'Stand with feet shoulder-width apart, flex your knees slightly as if sitting on a bar stool. Let arms hang naturally.',
       });
     }
 
     tips.push({
-      title: 'Tempo Training',
-      description:
-        'Count "1" on the backswing and "2" on the downswing. A 3:1 ratio is ideal. Use a metronome at 72 BPM.',
+      title: level === 'pga' ? 'Tour Tempo Precision' : 'Tempo Training',
+      description: level === 'pga'
+        ? 'Tour tempo is 3:1 (backswing:downswing). Scheffler is 0.75s back, 0.25s down. Use high-speed video to measure yours to the hundredth of a second.'
+        : level === 'kornferry'
+        ? 'Consistent tempo is what separates you from the PGA Tour. Use a Tour Tempo app and train at 21/7 (frames back/down).'
+        : 'Count "1" on the backswing and "2" on the downswing. A 3:1 ratio is ideal. Use a metronome at 72 BPM.',
     });
 
     return tips;
@@ -544,28 +598,39 @@ class SwingAnalyzer {
     let totalWeight = 0;
     let weightedScore = 0;
 
+    // Rating multipliers scale by level - higher levels demand more from each metric
+    // Amateur: generous scoring (good=1.0, warning=0.6, needs-work=0.25)
+    // KornFerry: stricter (good=0.85, warning=0.4, needs-work=0.1)
+    // PGA: elite standard (good=0.6, warning=0.15, needs-work=0.0)
+    const ratingMultipliers = {
+      amateur:    { good: 1.0,  warning: 0.6,  'needs-work': 0.25 },
+      kornferry:  { good: 0.85, warning: 0.4,  'needs-work': 0.1  },
+      pga:        { good: 0.6,  warning: 0.15, 'needs-work': 0.0  },
+    };
+
+    const multipliers = ratingMultipliers[this._level] || ratingMultipliers.amateur;
+
     Object.entries(weights).forEach(([key, weight]) => {
       const m = metrics[key];
       if (!m) return;
       totalWeight += weight;
-
-      if (m.rating === 'good') weightedScore += weight * 1.0;
-      else if (m.rating === 'warning') weightedScore += weight * 0.6;
-      else weightedScore += weight * 0.25;
+      weightedScore += weight * (multipliers[m.rating] || 0);
     });
 
     // Base score from metrics (0-100 range)
     let score = totalWeight > 0 ? (weightedScore / totalWeight) * 100 : 50;
 
-    // Bonus for spine consistency (up to +5)
+    // Bonus for spine consistency - scales down for higher levels
     if (metrics._spineConsistency !== undefined) {
-      if (metrics._spineConsistency < 8) score += 5;
-      else if (metrics._spineConsistency < 15) score += 2;
+      const spineBonus = this._level === 'pga' ? 1 : this._level === 'kornferry' ? 3 : 5;
+      if (metrics._spineConsistency < 8) score += spineBonus;
+      else if (metrics._spineConsistency < 15) score += Math.floor(spineBonus / 2);
     }
 
-    // Bonus for having all phases detected (up to +5)
+    // Bonus for having all phases detected - scales down for higher levels
     const phaseCount = Object.values(phases).filter(Boolean).length;
-    score += (phaseCount / 6) * 5;
+    const phaseBonus = this._level === 'pga' ? 1 : this._level === 'kornferry' ? 3 : 5;
+    score += (phaseCount / 6) * phaseBonus;
 
     // Round and clamp
     return Math.round(Math.min(100, Math.max(0, score)));
