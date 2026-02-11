@@ -1,10 +1,7 @@
 {
   "version": 2,
-  "outputDirectory": "public",
-  "routes": [
-    {
-      "src": "/(.*)",
-      "dest": "/$1"
-    }
-  ]
+  "framework": null,
+  "installCommand": "echo skip",
+  "buildCommand": "echo skip",
+  "outputDirectory": "public"
 }
