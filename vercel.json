@@ -1,7 +1,0 @@
-{
-  "version": 2,
-  "framework": null,
-  "installCommand": "echo skip",
-  "buildCommand": "echo skip",
-  "outputDirectory": "public"
-}
